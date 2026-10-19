@@ -1,0 +1,166 @@
+html, body {
+  margin: 0;
+  padding: 0;
+  background: #000;
+  color: #ccc;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  overflow: hidden;
+  height: 100vh;
+}
+
+#wrap {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  background: #000;
+}
+
+body.mode-9-16 #wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+canvas {
+  display: block;
+  background: #000;
+  touch-action: none;
+  outline: none;
+}
+
+body.mode-9-16 canvas {
+  width:  min(100vw, calc(100vh * 9 / 16));
+  height: min(100vh, calc(100vw * 16 / 9));
+}
+
+body.mode-full canvas {
+  width:  100vw;
+  height: 100vh;
+}
+
+#hud { display: none; }
+
+#overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  color: #fff;
+  text-align: center;
+  pointer-events: auto;
+}
+#overlay.hidden { display: none; }
+#overlay .panel {
+  background: rgba(0, 0, 0, 0.85);
+  border: 1px solid rgba(240, 200, 140, 0.35);
+  padding: 18px 22px;
+  border-radius: 4px;
+  max-width: 380px;
+  letter-spacing: 0.4px;
+}
+#overlay .small { font-size: 12px; color: #aa9988; margin-top: 12px; line-height: 1.6; }
+#overlay b { color: #f0d090; letter-spacing: 1px; }
+
+#overlay .menu .title {
+  font-size: 22px; color: #f0d090; letter-spacing: 3px;
+  margin-bottom: 14px;
+}
+#overlay .menu .section {
+  font-size: 10px; color: #aa9988; letter-spacing: 2px;
+  margin: 12px 0 6px;
+}
+#overlay .menu .grid {
+  display: grid; grid-template-columns: 1fr; gap: 6px;
+}
+#overlay .menu .row {
+  display: flex; gap: 6px; justify-content: center;
+}
+#overlay .menu .opt {
+  background: rgba(20,20,28,0.9);
+  color: #ccc;
+  border: 1px solid rgba(240,200,140,0.2);
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 12px;
+  letter-spacing: 1px;
+  cursor: pointer;
+  text-align: left;
+  display: flex; flex-direction: column; gap: 2px;
+}
+#overlay .menu .opt.diff {
+  flex: 1; align-items: center; text-align: center;
+  font-weight: bold;
+}
+#overlay .menu .opt:hover { border-color: rgba(240,200,140,0.6); }
+#overlay .menu .opt.on {
+  background: rgba(240,200,140,0.15);
+  border-color: #f0d090;
+  color: #fff;
+}
+#overlay .menu .opt b { color: #f0d090; font-size: 13px; }
+#overlay .menu .opt .blurb { color: #aa9988; font-size: 10px; }
+#overlay .menu .skin-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
+}
+#overlay .menu .skin-btn {
+  align-items: flex-start;
+}
+#overlay .menu .swatch {
+  width: 100%; height: 8px; border-radius: 1px; margin-bottom: 4px;
+}
+#overlay .menu .disp-grid {
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px;
+}
+#overlay .menu .best {
+  margin-top: 10px; font-size: 11px; color: #aa9988;
+}
+#overlay .menu .play {
+  margin-top: 14px;
+  background: #f0d090;
+  color: #1a1208;
+  border: none;
+  padding: 10px 28px;
+  font-family: inherit;
+  font-size: 14px;
+  letter-spacing: 3px;
+  font-weight: bold;
+  cursor: pointer;
+  border-radius: 2px;
+}
+#overlay .menu .play:hover { background: #ffe0a0; }
+
+/* Touch control hint overlay — visible only on touch devices */
+#touch-ui {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: none;
+}
+body.touch-device #touch-ui { display: block; }
+body.touch-device.in-menu   #touch-ui { display: none; }
+
+.tc {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255,255,255,0.18);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  letter-spacing: 1px;
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 6px;
+}
+#tc-thrust { top: 5%;    left: 25%;  right: 25%; height: 55%; }
+#tc-left   { bottom: 5%; left: 3%;   width: 28%; height: 32%; }
+#tc-retro  { bottom: 5%; left: 36%;  right: 36%; height: 32%; }
+#tc-right  { bottom: 5%; right: 3%;  width: 28%; height: 32%; }
+
+/* Overlay scrollable on small touch screens */
+body.touch-device #overlay .panel {
+  max-height: 90vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
