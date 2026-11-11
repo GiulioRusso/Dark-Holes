@@ -5,56 +5,55 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Dark Holes · Deep Space</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;800&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet" />
   <style>
-    :root { --hud: #8fe9ff; --hud-dim: rgba(143,233,255,.45); --warn: #ffb36b; }
+    :root { --g: #39ff7a; --gd: rgba(57,255,122,.45); --gf: rgba(57,255,122,.14); --red: #ff4040; --bg: rgba(0,10,4,.62); }
     * { box-sizing: border-box; }
-    html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color: var(--hud);
-      font-family: "Share Tech Mono", ui-monospace, monospace; user-select: none; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color: var(--g);
+      font-family: "VT323", ui-monospace, Menlo, monospace; user-select: none; }
     canvas#c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     .hidden { display: none !important; }
-    #cockpit { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-    #reticle { position: fixed; left: 50%; top: 50%; width: 34px; height: 34px; margin: -17px 0 0 -17px; pointer-events: none;
-      border: 1px solid var(--hud-dim); border-radius: 50%; }
-    #reticle::after { content: ""; position: absolute; left: 50%; top: 50%; width: 3px; height: 3px; margin: -1.5px; background: var(--hud); border-radius: 50%; }
-    #bracket { position: fixed; left: 0; top: 0; pointer-events: none; border: 1px solid var(--hud-dim); border-radius: 4px;
-      transition: border-color .2s; }
-    #bracket.locked { border-color: var(--warn); box-shadow: 0 0 12px rgba(255,179,107,.35); }
-    #bracket.edge { border-radius: 50%; }
-    #bracket .lbl { position: absolute; left: 100%; top: 0; margin-left: 10px; white-space: nowrap; font-size: 12px; line-height: 1.35;
-      text-shadow: 0 0 6px rgba(0,0,0,.9); }
-    #bracket .lbl b { font-family: Orbitron, sans-serif; font-weight: 500; letter-spacing: .06em; font-size: 13px; }
-    #bracket.locked .lbl b { color: var(--warn); }
-    .panel { position: fixed; font-size: 13px; line-height: 1.55; text-shadow: 0 0 8px rgba(80,200,255,.5); pointer-events: none; }
-    .panel .k { color: var(--hud-dim); display: inline-block; width: 92px; }
-    #hudL { left: 4vw; bottom: 3.2vh; }
-    #hudR { right: 4vw; top: 6vh; text-align: right; }
-    #hudR .k { width: auto; margin-right: 8px; }
-    #hudC { left: 50%; bottom: 3.2vh; transform: translateX(-50%); text-align: center; min-width: 260px; }
-    #hudC .ap { color: var(--warn); }
-    #mapWrap { position: fixed; right: 2.2vw; bottom: 2.2vh; width: 220px; height: 220px; pointer-events: none;
-      border-radius: 50%; box-shadow: 0 0 0 1px rgba(143,233,255,.25), 0 0 30px rgba(0,0,0,.8); }
-    #map { width: 220px; height: 220px; display: block; border-radius: 50%; }
-    #mapLbl { position: absolute; left: 0; right: 0; top: -20px; text-align: center; font-size: 11px; color: var(--hud-dim); }
-    #toasts { position: fixed; left: 50%; top: 9vh; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; }
-    .toast { padding: 8px 18px; border: 1px solid var(--hud-dim); background: rgba(4,12,22,.6); backdrop-filter: blur(4px);
-      font-size: 14px; text-align: center; animation: toast 5s forwards; }
-    .toast small { display: block; font-size: 10px; letter-spacing: .3em; color: var(--warn); }
-    @keyframes toast { 0% { opacity: 0; transform: translateY(-8px); } 8%, 80% { opacity: 1; transform: none; } 100% { opacity: 0; } }
+    .term { background: var(--bg); border: 1px solid var(--gd); text-shadow: 0 0 6px rgba(57,255,122,.55); position: fixed; pointer-events: none; }
+    .term::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+      background: repeating-linear-gradient(0deg, rgba(0,0,0,.22) 0 1px, transparent 1px 3px); }
+    .bar { font-size: 15px; padding: 1px 8px; background: var(--gf); border-bottom: 1px solid var(--gd); color: var(--g); letter-spacing: .08em; }
+    #panel { left: 16px; bottom: 16px; width: min(440px, calc(100vw - 290px)); }
+    #panelBody { margin: 0; padding: 6px 10px 8px; font: 18px/1.08 "VT323", monospace; white-space: pre-wrap; word-break: break-word; }
+    #panelBody .k { color: var(--gd); }
+    #panelBody .p { color: #b6ffcf; }
+    #panelBody .w { color: #d9ff6b; }
+    #panelBody .log { color: rgba(57,255,122,.75); }
+    #panelBody .a1 { color: #ffb347; animation: blink .8s steps(2) infinite; }
+    #panelBody .a2 { color: var(--red); animation: blink .4s steps(2) infinite; text-shadow: 0 0 8px rgba(255,64,64,.8); }
+    .cur { animation: blink 1s steps(2) infinite; }
+    @keyframes blink { 50% { opacity: .15; } }
+    #radar { right: 16px; bottom: 16px; width: 252px; }
+    #radar.alarm { border-color: var(--red); }
+    #map { width: 250px; height: 250px; display: block; }
+    #reticle { position: fixed; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; pointer-events: none; opacity: .7;
+      background: linear-gradient(var(--g),var(--g)) center/1px 8px no-repeat, linear-gradient(var(--g),var(--g)) center/8px 1px no-repeat; }
+    #bracket { position: fixed; left: 0; top: 0; pointer-events: none; --c: var(--gd);
+      background:
+        linear-gradient(var(--c),var(--c)) 0 0/10px 1px no-repeat, linear-gradient(var(--c),var(--c)) 0 0/1px 10px no-repeat,
+        linear-gradient(var(--c),var(--c)) 100% 0/10px 1px no-repeat, linear-gradient(var(--c),var(--c)) 100% 0/1px 10px no-repeat,
+        linear-gradient(var(--c),var(--c)) 0 100%/10px 1px no-repeat, linear-gradient(var(--c),var(--c)) 0 100%/1px 10px no-repeat,
+        linear-gradient(var(--c),var(--c)) 100% 100%/10px 1px no-repeat, linear-gradient(var(--c),var(--c)) 100% 100%/1px 10px no-repeat; }
+    #bracket.locked { --c: var(--g); }
+    #bracket .lbl { position: absolute; left: 100%; top: 0; margin-left: 8px; white-space: nowrap; font-size: 17px; line-height: 1;
+      color: var(--gd); text-shadow: 0 0 5px #000, 0 0 6px rgba(57,255,122,.4); }
+    #bracket.locked .lbl, #bracket .lbl b { color: var(--g); font-weight: normal; }
+    #edge { position: fixed; inset: 0; pointer-events: none; opacity: 0; box-shadow: inset 0 0 90px rgba(255,40,40,.55); }
+    #edge.on { animation: pulse .7s infinite alternate; }
+    @keyframes pulse { from { opacity: .15; } to { opacity: 1; } }
     #flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
-    .screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column;
-      background: radial-gradient(ellipse at center, rgba(0,0,0,.25), rgba(0,0,0,.75)); text-align: center; padding: 16px; }
-    .screen h1 { font-family: Orbitron, sans-serif; font-weight: 800; font-size: clamp(36px, 7vw, 84px); letter-spacing: .18em; margin: 0;
-      color: #fff; text-shadow: 0 0 30px rgba(120,200,255,.6); }
-    .screen h2 { font-family: Orbitron, sans-serif; font-weight: 500; letter-spacing: .5em; font-size: 14px; margin: 6px 0 36px; color: var(--hud); }
-    .go { font-family: Orbitron, sans-serif; letter-spacing: .3em; font-size: 15px; padding: 14px 34px; border: 1px solid var(--hud);
-      color: #fff; background: rgba(143,233,255,.08); cursor: pointer; animation: pulse 2.4s infinite; }
-    @keyframes pulse { 50% { box-shadow: 0 0 24px rgba(143,233,255,.45); } }
-    .keys { margin-top: 34px; display: grid; grid-template-columns: auto auto; gap: 4px 22px; font-size: 13px; text-align: left; color: #cfefff; }
-    .keys span:nth-child(odd) { color: var(--warn); text-align: right; }
-    .screen a { color: var(--hud-dim); margin-top: 28px; font-size: 12px; }
-    #help { background: rgba(0,0,0,.55); }
-    #hint { position: fixed; left: 50%; top: 62%; transform: translateX(-50%); font-size: 12px; color: var(--hud-dim); pointer-events: none; }
+    #hint { position: fixed; left: 50%; top: 60%; transform: translateX(-50%); font-size: 18px; color: var(--gd); pointer-events: none; }
+    .screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(0,0,0,.55); }
+    .screen .term { position: relative; pointer-events: auto; width: min(620px, 100%); }
+    .screen pre { margin: 0; padding: 14px 18px 18px; font: 20px/1.15 "VT323", monospace; white-space: pre-wrap; }
+    .screen h1 { font: 64px/1 "VT323", monospace; margin: 0 0 4px; letter-spacing: .06em; color: #b6ffcf; }
+    .screen .k { color: var(--gd); }
+    .screen a { color: var(--g); }
+    #intro { cursor: pointer; }
   </style>
   <script type="importmap">
     { "imports": {
@@ -65,51 +64,33 @@
 </head>
 <body>
   <canvas id="c"></canvas>
-
-  <svg id="cockpit" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true">
-    <defs>
-      <linearGradient id="frame" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0" stop-color="#0b1220" /><stop offset=".8" stop-color="#05080f" /><stop offset="1" stop-color="#020306" />
-      </linearGradient>
-    </defs>
-    <path fill="url(#frame)" fill-opacity=".94" fill-rule="evenodd"
-      d="M0 0H1000V1000H0Z M38 26 Q500 -14 962 26 L992 820 Q500 885 8 820 Z" />
-    <path fill="none" stroke="#8fe9ff" stroke-opacity=".22" stroke-width="1.2" vector-effect="non-scaling-stroke"
-      d="M38 26 Q500 -14 962 26 L992 820 Q500 885 8 820 Z" />
-    <path fill="none" stroke="#8fe9ff" stroke-opacity=".08" stroke-width="1" vector-effect="non-scaling-stroke"
-      d="M120 40 L60 790 M880 40 L940 790" />
-  </svg>
-
+  <div id="edge"></div>
   <div id="reticle"></div>
   <div id="bracket" class="hidden"><div class="lbl"></div></div>
-  <div id="hudL" class="panel"></div>
-  <div id="hudC" class="panel"></div>
-  <div id="hudR" class="panel"></div>
-  <div id="mapWrap"><div id="mapLbl"></div><canvas id="map"></canvas></div>
-  <div id="toasts"></div>
-  <div id="hint" class="hidden">click to steer with the mouse</div>
+  <div id="panel" class="term"><div class="bar">tty0 :: nav</div><div id="panelBody"></div></div>
+  <div id="radar" class="term"><div class="bar" id="mapLbl">radar</div><canvas id="map"></canvas></div>
+  <div id="hint" class="hidden">[ click to steer with the mouse ]</div>
   <div id="flash"></div>
 
   <div id="intro" class="screen">
-    <h1>DARK HOLES</h1>
-    <h2>DEEP SPACE</h2>
-    <div class="go" id="launch">CLICK TO LAUNCH</div>
-    <div class="keys">
-      <span>Mouse / Arrows</span><span>pitch &amp; yaw</span>
-      <span>W / S</span><span>thrust / reverse</span>
-      <span>A / D · R / F</span><span>strafe · up / down</span>
-      <span>Q / E</span><span>roll</span>
-      <span>Shift</span><span>warp drive</span>
-      <span>Space</span><span>brake</span>
-      <span>T · G</span><span>lock target · autopilot</span>
-      <span>M · C · V · B · H</span><span>map zoom · cockpit · sound · home · help</span>
-    </div>
-    <a href="classic.html">play the classic 2D game →</a>
+    <div class="term"><div class="bar">tty0 :: boot</div><pre><h1>DARK HOLES</h1><span class="k">// deep space explorer</span>
+
+&gt; loading star catalog ........ ok
+&gt; calibrating gravimeter ....... ok
+&gt; warp coil ..................... ok
+
+<span class="k">mouse / arrows</span>  pitch &amp; yaw      <span class="k">q / e</span>  roll
+<span class="k">w / s</span>           thrust / reverse <span class="k">shift</span>  warp
+<span class="k">a / d  r / f</span>    strafe / up-down <span class="k">space</span>  brake
+<span class="k">t</span> lock target   <span class="k">g</span> autopilot   <span class="k">c</span> camera view
+<span class="k">m</span> radar range   <span class="k">v</span> sound   <span class="k">b</span> home   <span class="k">h</span> help
+
+&gt; click or press [enter] to launch<span class="cur">█</span>
+
+<a href="classic.html">$ ./classic-2d</a></pre></div>
   </div>
   <div id="help" class="screen hidden">
-    <h2>CONTROLS</h2>
-    <div class="keys" id="helpKeys"></div>
-    <a>press H to close</a>
+    <div class="term"><div class="bar">tty1 :: man nav</div><pre id="helpBody"></pre></div>
   </div>
 
   <script type="module" src="game3d.js"></script>

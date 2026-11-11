@@ -10,7 +10,7 @@ Runs in any modern browser — no build step.
 <p align="center">
   <img src="docs/3d-home.png" alt="Deep Space: home world" width="420">
   &nbsp;
-  <img src="docs/3d-blackhole.png" alt="Deep Space: black hole with gravitational lensing" width="420">
+  <img src="docs/3d-chase.png" alt="Deep Space: chase view with nav terminal and radar" width="420">
 </p>
 
 ## Deep Space (3D)
@@ -29,8 +29,9 @@ You start in orbit around a terran world in your home system. Everything else is
 | Brake | `Space` |
 | Lock target under the reticle | `T` |
 | Autopilot to target | `G` |
+| Camera: cockpit / chase (ship seen from outside) | `C` |
 | Radar range | `M` |
-| Cockpit frame · sound · help | `C` · `V` · `H` |
+| Sound · help | `V` · `H` |
 | Beacon back to the home system | `B` |
 
 ### What's out there
@@ -50,7 +51,12 @@ You start in orbit around a terran world in your home system. Everything else is
 
 ### HUD
 
-Speed, β (fraction of c), time dilation, proper time, discoveries, current sector and nearest star. The target bracket shows name, type and distance. The radar (bottom right) is ship-relative and square-root scaled; stalks show how far above/below you each body is.
+Full-screen view with a green terminal-style HUD:
+
+- **Nav terminal** (bottom left): speed, β, time dilation, proper time τ vs universe time t, local gravity, sector, nearest star, charted bodies, camera view, target, alarms and an event log.
+- **Radar** (bottom right): ship-relative, square-root scaled, rotating sweep with phosphor fade. Stalks show how far above/below you each body is. Squares are stars, dots planets and moons, red rings black holes, diamonds wormholes, dashed circles nebulae.
+- **Proximity / gravity alarm**: CAUTION or DANGER, with a klaxon, when you get close to a surface, approach a black hole's horizon, or local gravity gets strong.
+- Bodies carry catalog designations (`STAR-3F2A`, `STAR-3F2A b`, `STAR-3F2A b I`, `BH-…`, `WH-…`, `NEB-…`), not invented names.
 
 ## Classic (2D)
 
