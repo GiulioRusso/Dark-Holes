@@ -2,15 +2,116 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Dark Holes</title>
-  <link rel="stylesheet" href="styles.css" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dark Holes · Deep Space</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;800&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
+  <style>
+    :root { --hud: #8fe9ff; --hud-dim: rgba(143,233,255,.45); --warn: #ffb36b; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color: var(--hud);
+      font-family: "Share Tech Mono", ui-monospace, monospace; user-select: none; }
+    canvas#c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+    .hidden { display: none !important; }
+    #cockpit { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+    #reticle { position: fixed; left: 50%; top: 50%; width: 34px; height: 34px; margin: -17px 0 0 -17px; pointer-events: none;
+      border: 1px solid var(--hud-dim); border-radius: 50%; }
+    #reticle::after { content: ""; position: absolute; left: 50%; top: 50%; width: 3px; height: 3px; margin: -1.5px; background: var(--hud); border-radius: 50%; }
+    #bracket { position: fixed; left: 0; top: 0; pointer-events: none; border: 1px solid var(--hud-dim); border-radius: 4px;
+      transition: border-color .2s; }
+    #bracket.locked { border-color: var(--warn); box-shadow: 0 0 12px rgba(255,179,107,.35); }
+    #bracket.edge { border-radius: 50%; }
+    #bracket .lbl { position: absolute; left: 100%; top: 0; margin-left: 10px; white-space: nowrap; font-size: 12px; line-height: 1.35;
+      text-shadow: 0 0 6px rgba(0,0,0,.9); }
+    #bracket .lbl b { font-family: Orbitron, sans-serif; font-weight: 500; letter-spacing: .06em; font-size: 13px; }
+    #bracket.locked .lbl b { color: var(--warn); }
+    .panel { position: fixed; font-size: 13px; line-height: 1.55; text-shadow: 0 0 8px rgba(80,200,255,.5); pointer-events: none; }
+    .panel .k { color: var(--hud-dim); display: inline-block; width: 92px; }
+    #hudL { left: 4vw; bottom: 3.2vh; }
+    #hudR { right: 4vw; top: 6vh; text-align: right; }
+    #hudR .k { width: auto; margin-right: 8px; }
+    #hudC { left: 50%; bottom: 3.2vh; transform: translateX(-50%); text-align: center; min-width: 260px; }
+    #hudC .ap { color: var(--warn); }
+    #mapWrap { position: fixed; right: 2.2vw; bottom: 2.2vh; width: 220px; height: 220px; pointer-events: none;
+      border-radius: 50%; box-shadow: 0 0 0 1px rgba(143,233,255,.25), 0 0 30px rgba(0,0,0,.8); }
+    #map { width: 220px; height: 220px; display: block; border-radius: 50%; }
+    #mapLbl { position: absolute; left: 0; right: 0; top: -20px; text-align: center; font-size: 11px; color: var(--hud-dim); }
+    #toasts { position: fixed; left: 50%; top: 9vh; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; }
+    .toast { padding: 8px 18px; border: 1px solid var(--hud-dim); background: rgba(4,12,22,.6); backdrop-filter: blur(4px);
+      font-size: 14px; text-align: center; animation: toast 5s forwards; }
+    .toast small { display: block; font-size: 10px; letter-spacing: .3em; color: var(--warn); }
+    @keyframes toast { 0% { opacity: 0; transform: translateY(-8px); } 8%, 80% { opacity: 1; transform: none; } 100% { opacity: 0; } }
+    #flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+    .screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column;
+      background: radial-gradient(ellipse at center, rgba(0,0,0,.25), rgba(0,0,0,.75)); text-align: center; padding: 16px; }
+    .screen h1 { font-family: Orbitron, sans-serif; font-weight: 800; font-size: clamp(36px, 7vw, 84px); letter-spacing: .18em; margin: 0;
+      color: #fff; text-shadow: 0 0 30px rgba(120,200,255,.6); }
+    .screen h2 { font-family: Orbitron, sans-serif; font-weight: 500; letter-spacing: .5em; font-size: 14px; margin: 6px 0 36px; color: var(--hud); }
+    .go { font-family: Orbitron, sans-serif; letter-spacing: .3em; font-size: 15px; padding: 14px 34px; border: 1px solid var(--hud);
+      color: #fff; background: rgba(143,233,255,.08); cursor: pointer; animation: pulse 2.4s infinite; }
+    @keyframes pulse { 50% { box-shadow: 0 0 24px rgba(143,233,255,.45); } }
+    .keys { margin-top: 34px; display: grid; grid-template-columns: auto auto; gap: 4px 22px; font-size: 13px; text-align: left; color: #cfefff; }
+    .keys span:nth-child(odd) { color: var(--warn); text-align: right; }
+    .screen a { color: var(--hud-dim); margin-top: 28px; font-size: 12px; }
+    #help { background: rgba(0,0,0,.55); }
+    #hint { position: fixed; left: 50%; top: 62%; transform: translateX(-50%); font-size: 12px; color: var(--hud-dim); pointer-events: none; }
+  </style>
+  <script type="importmap">
+    { "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    } }
+  </script>
 </head>
 <body>
-  <div id="wrap">
-    <canvas id="game"></canvas>
-    <div id="hud"></div>
-    <div id="overlay" class="hidden"></div>
+  <canvas id="c"></canvas>
+
+  <svg id="cockpit" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true">
+    <defs>
+      <linearGradient id="frame" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#0b1220" /><stop offset=".8" stop-color="#05080f" /><stop offset="1" stop-color="#020306" />
+      </linearGradient>
+    </defs>
+    <path fill="url(#frame)" fill-opacity=".94" fill-rule="evenodd"
+      d="M0 0H1000V1000H0Z M38 26 Q500 -14 962 26 L992 820 Q500 885 8 820 Z" />
+    <path fill="none" stroke="#8fe9ff" stroke-opacity=".22" stroke-width="1.2" vector-effect="non-scaling-stroke"
+      d="M38 26 Q500 -14 962 26 L992 820 Q500 885 8 820 Z" />
+    <path fill="none" stroke="#8fe9ff" stroke-opacity=".08" stroke-width="1" vector-effect="non-scaling-stroke"
+      d="M120 40 L60 790 M880 40 L940 790" />
+  </svg>
+
+  <div id="reticle"></div>
+  <div id="bracket" class="hidden"><div class="lbl"></div></div>
+  <div id="hudL" class="panel"></div>
+  <div id="hudC" class="panel"></div>
+  <div id="hudR" class="panel"></div>
+  <div id="mapWrap"><div id="mapLbl"></div><canvas id="map"></canvas></div>
+  <div id="toasts"></div>
+  <div id="hint" class="hidden">click to steer with the mouse</div>
+  <div id="flash"></div>
+
+  <div id="intro" class="screen">
+    <h1>DARK HOLES</h1>
+    <h2>DEEP SPACE</h2>
+    <div class="go" id="launch">CLICK TO LAUNCH</div>
+    <div class="keys">
+      <span>Mouse / Arrows</span><span>pitch &amp; yaw</span>
+      <span>W / S</span><span>thrust / reverse</span>
+      <span>A / D · R / F</span><span>strafe · up / down</span>
+      <span>Q / E</span><span>roll</span>
+      <span>Shift</span><span>warp drive</span>
+      <span>Space</span><span>brake</span>
+      <span>T · G</span><span>lock target · autopilot</span>
+      <span>M · C · V · B · H</span><span>map zoom · cockpit · sound · home · help</span>
+    </div>
+    <a href="classic.html">play the classic 2D game →</a>
   </div>
-  <script src="game.js"></script>
+  <div id="help" class="screen hidden">
+    <h2>CONTROLS</h2>
+    <div class="keys" id="helpKeys"></div>
+    <a>press H to close</a>
+  </div>
+
+  <script type="module" src="game3d.js"></script>
 </body>
 </html>
