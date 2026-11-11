@@ -8,7 +8,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 const V3 = THREE.Vector3;
 // 1 world unit = 10 km. Sectors are cubes; a sector holds at most one star system / black hole / wormhole.
-const SECTOR = 100000, LOAD = 2, C_LIGHT = 50000, MAX_WARP = 40000, CRUISE = 1200, SEED = 0x5eed;
+const SECTOR = 100000, LOAD = 2, C_LIGHT = 150000, MAX_WARP = 120000, CRUISE = 3000, SEED = 0x5eed;
 const FADE_NEAR = 150000, FADE_FAR = 200000, FOV = 70;
 
 // ---------------------------------------------------------------- rng / helpers
@@ -141,7 +141,7 @@ const STAR_FS = `uniform vec3 uC,uSeed; varying vec3 vP; varying vec3 vN; varyin
 void main(){ ${FD}
   vec3 p=normalize(vP), V=normalize(cameraPosition-vW); float mu=max(dot(normalize(vN),V),0.);
   float n=fbm(p*4.+uSeed+vec3(0.,uTime*.02,uTime*.015)), g=snoise(p*28.+uTime*.05);
-  vec3 c=uC*(1.25+n*.7+g*.12)*(.55+.45*sqrt(mu)) + uC*pow(1.-mu,3.)*.5;
+  vec3 c=uC*(.9+n*.5+g*.1)*(.55+.45*sqrt(mu)) + uC*pow(1.-mu,3.)*.5;
   gl_FragColor=vec4(c,1.);
 }`;
 
@@ -166,20 +166,22 @@ void main(){ ${FD}
   float ph=a-uTime*2.5*pow(r/3.,-1.5);
   float n=fbm(vec3(cos(ph)*r*.8,sin(ph)*r*.8,r*.6)), n2=snoise(vec3(r*3.,ph*2.,uTime*.2));
   float I=max(0.,.55+n*.9+n2*.15)*smoothstep(0.,.06,t)*pow(max(1.-t,0.),1.6);
-  vec3 col=mix(vec3(1.,.92,.8),vec3(1.,.5,.15),smoothstep(0.,.3,t));
-  col=mix(col,vec3(.6,.12,.05),smoothstep(.3,.9,t));
-  float dop=1.+.75*dot(normalize(vT),normalize(cameraPosition-vW));
+  vec3 col=mix(vec3(1.,.96,.9),vec3(1.,.78,.48),smoothstep(0.,.35,t));
+  col=mix(col,vec3(.55,.32,.16),smoothstep(.35,.95,t));
+  float dop=1.+.3*dot(normalize(vT),normalize(cameraPosition-vW));
   gl_FragColor=vec4(col*I*dop*dop*1.8*uFade,1.);
 }`;
 
-const WH_VS = `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); ${LD} }`;
-const WH_FS = `uniform float uFade; varying vec2 vUv;
+const WH_FS = `uniform samplerCube uSky; uniform float uFade; varying vec3 vP; varying vec3 vN; varying vec3 vW;
 void main(){ ${FD}
-  vec2 p=vUv*2.-1.; float r=length(p); if(r>1.) discard;
-  float a=atan(p.y,p.x), sw=a+2.5/(r+.2)-uTime*.8;
-  float n=snoise(vec3(cos(sw)*1.5,sin(sw)*1.5,r*4.-uTime*.6))*.5+.5;
-  vec3 col=mix(vec3(.15,.85,1.),vec3(.85,.3,1.),n)*smoothstep(1.,.55,r)*smoothstep(.12,.45,r)*(.4+1.4*n*n)*1.1;
-  col+=vec3(.75,.95,1.)*pow(smoothstep(.45,0.,r),2.);
+  vec3 V=normalize(vW-cameraPosition), N=normalize(vN);
+  float f=max(dot(-V,N),0.);
+  vec3 d=refract(V,N,.55); d=vec3(-d.z,-d.y,d.x); // look into a different patch of sky
+  vec3 col=textureCube(uSky,d).rgb*9.;
+  float g=exp(-pow(length(d.xz-vec2(.35,.1)),2.)*14.)*exp(-d.y*d.y*40.); // the far galaxy
+  col+=vec3(1.,.86,.66)*g*(.6+.6*fbm(d*6.))*1.4;
+  col+=vec3(1.)*pow(max(snoise(d*90.),0.),12.)*2.5;
+  col=mix(col,vec3(.85,.82,.78),pow(1.-f,5.)*.9); // bright Einstein rim
   gl_FragColor=vec4(col*uFade,1.);
 }`;
 
@@ -203,11 +205,10 @@ const SKY_FS = `uniform vec3 uGC; varying vec3 vP; varying vec3 vN; varying vec3
 void main(){ ${FD}
   vec3 d=normalize(vP); float band=exp(-d.y*d.y*26.), core=pow(max(dot(d,uGC),0.),6.);
   float n=fbm(d*3.5), n2=fbm(d*9.+7.);
-  vec3 col=vec3(.5,.56,.85)*band*(.35+.65*smoothstep(-.3,.6,n))*.11;
-  col+=vec3(1.,.78,.55)*core*band*.32*(.6+.4*n);
-  col*=1.-smoothstep(0.,.5,n2)*band*.75;
-  col+=vec3(.35,.08,.45)*pow(max(fbm(d*1.6+3.),0.),2.)*.07;
-  col+=vec3(.05,.25,.35)*pow(max(fbm(d*2.2+11.),0.),2.)*.06;
+  vec3 col=vec3(.62,.56,.47)*band*(.3+.7*smoothstep(-.3,.6,n))*.075;
+  col+=vec3(1.,.8,.58)*core*band*.22*(.6+.4*n);
+  col*=1.-smoothstep(0.,.5,n2)*band*.85;
+  col+=vec3(.14,.17,.22)*pow(max(fbm(d*1.6+3.),0.),2.)*.05;
   gl_FragColor=vec4(col,1.);
 }`;
 
@@ -216,7 +217,6 @@ const GEO = {
   sphere: new THREE.SphereGeometry(1, 96, 64),
   ring: new THREE.RingGeometry(1.2, 2.6, 160, 1),
   disk: new THREE.RingGeometry(3, 10, 256, 6),
-  plane: new THREE.PlaneGeometry(2, 2),
   rock: (() => {
     const g = new THREE.IcosahedronGeometry(1, 1), p = g.attributes.position;
     for (let i = 0; i < p.count; i++) {
@@ -263,17 +263,20 @@ function sprite(color, scale, opacity, mul = 1.4) {
 }
 
 // ---------------------------------------------------------------- sky: baked galaxy cubemap + live starfield
-{
+const skyTex = (() => {
   const sky = new THREE.Scene();
   sky.add(new THREE.Mesh(new THREE.SphereGeometry(1000, 64, 32),
     smat(SPHERE_VS, SKY_FS, { uGC: { value: new V3(1, 0, .3).normalize() } }, { side: THREE.BackSide })));
   const crt = new THREE.WebGLCubeRenderTarget(1024, { type: THREE.HalfFloatType });
   new THREE.CubeCamera(1, 5000, crt).update(renderer, sky);
-  scene.background = crt.texture;
-}
+  return crt.texture;
+})();
+scene.background = skyTex;
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromCubemap(skyTex).texture; // reflections on the ship's steel
 const starfield = (() => {
   const N = 2600, pos = new Float32Array(N * 3), col = new Float32Array(N * 3), size = new Float32Array(N), r = rng(99);
-  const tints = [[1, .8, .6], [1, 1, 1], [.7, .8, 1], [1, .6, .4], [.85, .9, 1]];
+  const tints = [[1, .97, .92], [1, 1, 1], [.85, .9, 1], [1, .88, .72], [.9, .93, 1]];
   const d = new V3();
   for (let i = 0; i < N; i++) {
     if (i < N * .55) { const a = r() * 6.283; d.set(Math.cos(a), (r() + r() + r() - 1.5) * .12, Math.sin(a)); }
@@ -311,7 +314,7 @@ const PALS = [
   [[[1, .35, .05], [.3, .08, .03], [.12, .06, .05]], [[1, .6, .1], [.3, .15, .02], [.1, .08, .07]]],
   [[[.7, .82, .95], [.45, .6, .85], [.92, .96, 1]], [[.85, .88, .9], [.6, .7, .75], [.4, .55, .7]]],
 ];
-const NEBS = [[[.9, .25, .55], [.35, .25, .95]], [[.2, .7, .9], [.15, .3, .8]], [[1, .45, .2], [.8, .2, .35]], [[.3, .9, .6], [.2, .4, .9]], [[.75, .35, 1], [.3, .6, 1]]];
+const NEBS = [[[.8, .6, .42], [.3, .26, .24]], [[.5, .56, .66], [.22, .24, .3]], [[.9, .72, .5], [.45, .32, .24]], [[.62, .5, .45], [.3, .34, .42]]];
 const pSys = sy => .5 * Math.exp(-Math.abs(sy) * .35); // galaxy disk thins out vertically
 
 function addBody(sec, props) {
@@ -328,12 +331,13 @@ const fadeOf = d => 1 - sstep(FADE_NEAR, FADE_FAR, d);
 
 function makeSystem(sec, r, c, home) {
   const st = home ? STARS[0] : wpick(r, STARS), R = rr(r, ...st.R), col = new THREE.Color(...st.c), name = 'STAR-' + code(r);
-  const star = addBody(sec, { kind: 'star', label: st.k, name, R, gm: R * R * 35, lockR: R, discR: R * 8, css: col.getStyle() });
+  const star = addBody(sec, { kind: 'star', label: st.k, name, R, gm: R * R * 35, lockR: R, discR: R * 8 });
   star.pos.copy(c);
   const obj = new THREE.Group(); obj.position.copy(c);
-  const surf = new THREE.Mesh(GEO.sphere, smat(SPHERE_VS, STAR_FS, { uC: { value: col }, uSeed: { value: new V3(rr(r, 0, 99), rr(r, 0, 99), rr(r, 0, 99)) } }));
+  const surf = new THREE.Mesh(GEO.sphere, smat(SPHERE_VS, STAR_FS, { uC: { value: col.clone().lerp(new THREE.Color(1, 1, 1), .35) }, uSeed: { value: new V3(rr(r, 0, 99), rr(r, 0, 99), rr(r, 0, 99)) } }));
   surf.scale.setScalar(R);
-  const glows = [sprite(col, R * 6, .45), sprite(col, R * 24, .07)];
+  const glows = [sprite(col.clone().lerp(new THREE.Color(1, 1, 1), .35), R * 6, .45), sprite(col, R * 24, .07), sprite(col.clone().lerp(new THREE.Color(.8, .9, 1), .5), 1, .09)];
+  glows[2].scale.set(R * 60, R * 1.1, 1); // cinematic horizontal flare
   obj.add(surf, ...glows);
   sec.group.add(obj);
   const sysGroup = new THREE.Group(); sec.group.add(sysGroup);
@@ -373,12 +377,11 @@ function makeSystem(sec, r, c, home) {
 }
 
 function makePlanet(sec, r, group, star, lightCol, o) {
-  const pal = pick(r, PALS[o.type]).map(c => new THREE.Color(c[0] * rr(r, .8, 1.2), c[1] * rr(r, .8, 1.2), c[2] * rr(r, .8, 1.2)));
+  const pal = pick(r, PALS[o.type]).map(c => { const k = new THREE.Color(c[0] * rr(r, .85, 1.15), c[1] * rr(r, .85, 1.15), c[2] * rr(r, .85, 1.15)); const l = k.r * .3 + k.g * .55 + k.b * .15; return k.lerp(new THREE.Color(l, l, l), .3); });
   const atmo = [null, new THREE.Color(.3, .55, 1), pal[0].clone().lerp(new THREE.Color(1, 1, 1), .3), new THREE.Color(1, .35, .1), new THREE.Color(.55, .75, 1)][o.type];
   const R = o.R;
   const b = addBody(sec, {
     kind: o.moon ? 'moon' : 'planet', label: o.moon ? 'Moon' : PTYPES[o.type], name: o.name, R, gm: R * R * 18, lockR: R, discR: R * 10,
-    css: pal[0].clone().lerp(new THREE.Color(1, 1, 1), .25).getStyle(),
     orbit: { parent: o.parent, a: o.a, omega: o.omega, phase: rr(r, 0, 6.283), incl: rr(r, -.06, .06) }, spin: rr(r, .01, .05) * (r() < .15 ? -1 : 1),
   });
   orbitPos(b, simT, b.pos); b.prev.copy(b.pos);
@@ -429,7 +432,7 @@ function makeBelt(r, c, a) {
 
 function makeBlackHole(sec, r, c) {
   const rs = rr(r, 350, 650);
-  const b = addBody(sec, { kind: 'bh', label: 'Black hole', name: 'BH-' + code(r), R: rs, gm: rs * rs * 6000, lockR: 0, discR: rs * 25, css: '#c48bff' });
+  const b = addBody(sec, { kind: 'bh', label: 'Black hole', name: 'BH-' + code(r), R: rs, gm: rs * rs * 6000, lockR: 0, discR: rs * 25 });
   b.pos.copy(c);
   const obj = new THREE.Group(); obj.position.copy(c);
   const core = new THREE.Mesh(GEO.sphere, MAT.black); core.scale.setScalar(rs);
@@ -443,18 +446,18 @@ function makeBlackHole(sec, r, c) {
 
 function makeWormhole(sec, r, c) {
   const R = rr(r, 500, 800);
-  const b = addBody(sec, { kind: 'wormhole', label: 'Wormhole', name: 'WH-' + code(r), R, gm: R * R * 15, lockR: 0, discR: R * 30, css: '#5ff' });
+  const b = addBody(sec, { kind: 'wormhole', label: 'Wormhole', name: 'WH-' + code(r), R, gm: R * R * 15, lockR: 0, discR: R * 30 });
   b.pos.copy(c);
-  const U = { uFade: { value: 1 } };
-  const m = new THREE.Mesh(GEO.plane, smat(WH_VS, WH_FS, U, ADD)); m.scale.setScalar(R * 1.6); m.position.copy(c);
-  const glow = sprite(new THREE.Color(.3, .8, 1), R * 4, .2, 1); glow.position.copy(c);
+  const U = { uFade: { value: 1 }, uSky: { value: skyTex } };
+  const m = new THREE.Mesh(GEO.sphere, smat(SPHERE_VS, WH_FS, U)); m.scale.setScalar(R); m.position.copy(c);
+  const glow = sprite(new THREE.Color(1, .92, .8), R * 5, .12, 1); glow.position.copy(c);
   sec.group.add(m, glow);
-  sec.ticks.push(() => { m.quaternion.copy(camera.quaternion); const f = fadeOf(ship.pos.distanceTo(c)); U.uFade.value = f; glow.material.opacity = .2 * f; });
+  sec.ticks.push(() => { const f = fadeOf(ship.pos.distanceTo(c)); U.uFade.value = f; glow.material.opacity = .12 * f; });
 }
 
 function makeNebula(sec, r, c) {
   const S = rr(r, 25000, 50000), pal = pick(r, NEBS).map(x => new THREE.Color(...x)), N = 55;
-  addBody(sec, { kind: 'nebula', label: 'Nebula', name: 'NEB-' + code(r), R: S * .45, discR: S * .45, css: pal[0].getStyle() }).pos.copy(c);
+  addBody(sec, { kind: 'nebula', label: 'Nebula', name: 'NEB-' + code(r), R: S * .45, discR: S * .45 }).pos.copy(c);
   const geo = new THREE.PlaneGeometry(1, 1), data = new Float32Array(N * 4), cols = new Float32Array(N * 3);
   const U = { uFade: { value: 1 }, uMap: { value: cloudTex } };
   const m = new THREE.InstancedMesh(geo, smat(NEB_VS, NEB_FS, U, ADD), N), M = new THREE.Matrix4(), p = new V3(), q = new THREE.Quaternion(), s = new V3(), tc = new THREE.Color();
@@ -462,7 +465,7 @@ function makeNebula(sec, r, c) {
   for (let i = 0; i < N; i++) {
     p.set(g() * S * .4, g() * S * .25, g() * S * .4).add(c);
     m.setMatrixAt(i, M.compose(p, q, s.setScalar(S * rr(r, .25, .7))));
-    data.set([r() * 6.283, rr(r, .035, .085), 0, 0], i * 4);
+    data.set([r() * 6.283, rr(r, .025, .06), 0, 0], i * 4);
     tc.copy(pal[0]).lerp(pal[1], r()).toArray(cols, i * 3);
   }
   geo.setAttribute('aData', new THREE.InstancedBufferAttribute(data, 4));
@@ -525,14 +528,14 @@ function updateSectors(all = false) {
 let simT = store.get('dh3d.t', 0);
 const ship = { pos: new V3(), vel: new V3(), q: new THREE.Quaternion(), w: new V3(), tau: store.get('dh3d.tau', 0), auto: false, target: null, cand: null };
 const keys = {};
-let mdx = 0, mdy = 0, mapRange = 1, chase = store.get('dh3d.chase', false), muted = false, started = false, lastHeat = -9;
+let paused = false, mdx = 0, mdy = 0, mapRange = 1, chase = store.get('dh3d.chase', false), muted = false, started = false, lastHeat = -9;
 const RANGES = [15000, 60000, 240000];
 const lookQ = (from, to, up = new V3(0, 1, 0)) => new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(from, to, up));
 
 function spawnAt(center, dist) {
   const d = new V3(Math.random() - .5, (Math.random() - .5) * .3, Math.random() - .5).normalize();
   ship.pos.copy(center).addScaledVector(d, dist);
-  ship.vel.set(0, 0, 0); ship.w.set(0, 0, 0); ship.auto = false; ship.target = null;
+  ship.vel.set(0, 0, 0); ship.w.set(0, 0, 0); ship.auto = false; ship.target = null; trail.length = 0;
   ship.q.copy(lookQ(ship.pos, center));
   updateSectors(true);
 }
@@ -555,23 +558,23 @@ function jump(msg) {
   }
   flash(1, '#fff');
   spawnAt(dest, 60000);
-  log(`[~] ${msg} :: displaced ${n} sectors`, 'w');
 }
 
 const introPre = document.querySelector('#intro pre');
 document.getElementById('helpBody').innerHTML = introPre.innerHTML.replace(/^[\s\S]*?(?=<span class="k">mouse)/, '').replace(/&gt; click[\s\S]*/, '&gt; press [h] to close');
-const launch = () => { if (started) return; started = true; document.getElementById('intro').classList.add('hidden'); lockPointer(); initAudio(); log('[i] nav online. good hunting.'); };
+const launch = () => { if (started) return; started = true; document.getElementById('intro').classList.add('hidden'); lockPointer(); initAudio(); };
 addEventListener('keydown', e => {
   keys[e.code] = true;
   if (!started) { if (e.code === 'Enter') launch(); return; }
   switch (e.code) {
     case 'KeyT': ship.target = ship.target && ship.target === ship.cand ? null : ship.cand; break;
     case 'KeyG': { const t = ship.target || ship.cand; if (t) { ship.target = t; ship.auto = !ship.auto; } break; }
+    case 'KeyP': paused = !paused; $('paused').classList.toggle('hidden', !paused); break;
     case 'KeyM': mapRange = (mapRange + 1) % RANGES.length; break;
     case 'KeyC': chase = !chase; store.set('dh3d.chase', chase); camQ.copy(ship.q); break;
     case 'KeyV': muted = !muted; if (audio) audio.master.gain.value = muted ? 0 : .35; break;
     case 'KeyH': document.getElementById('help').classList.toggle('hidden'); break;
-    case 'KeyB': flash(1, '#fff'); spawnHome(); log('[~] beacon recall :: home system'); break;
+    case 'KeyB': flash(1, '#fff'); spawnHome(); break;
   }
   if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
 });
@@ -595,7 +598,7 @@ function updateShip(dt) {
   let warp = k('ShiftLeft') || k('ShiftRight');
   if (!ctl) th = st = vt = warp = 0;
   const manual = pitch || yaw || roll || th || st || vt || Math.abs(mdx) + Math.abs(mdy) > 2;
-  if (manual && ship.auto) { ship.auto = false; log('[i] autopilot disengaged'); }
+  if (manual && ship.auto) { ship.auto = false; }
 
   ship.w.lerp(tA.set(pitch * 1.1, yaw * 1.1, roll * 1.6), 1 - Math.exp(-dt * 5));
   const sens = .0019 * (FOV / camera.fov);
@@ -637,21 +640,21 @@ function updateShip(dt) {
     const t = ship.target, d = ship.pos.distanceTo(t.pos), stop = t.kind === 'nebula' ? t.R : t.kind === 'bh' ? t.R * 14 : t.R * 3.5 + 400;
     ship.q.slerp(tQ2.copy(lookQ(ship.pos, t.pos, up)), 1 - Math.exp(-dt * 2.2));
     const ang = fwd.angleTo(tD.subVectors(t.pos, ship.pos));
-    if (d < stop) { ship.vel.multiplyScalar(Math.exp(-dt * 3)); if (ship.vel.length() < 60) { ship.auto = false; log(`[i] arrived :: ${t.name}`); } }
-    else { th = ang < .35 ? 1 : 0; warp = ang < .1 && d - stop > 6000 ? 1 : 0; }
+    if (d < stop) { ship.vel.multiplyScalar(Math.exp(-dt * 3)); if (ship.vel.length() < 60) { ship.auto = false; } }
+    else { th = ang < .35 ? 1 : 0; warp = ang < .1 && d - stop > 15000 ? 1 : 0; }
   }
 
   thrustVis += ((th > 0 ? (warp ? 2 : 1) : 0) - thrustVis) * Math.min(1, dt * 4);
   const speed0 = ship.vel.length();
-  const A = warp && th > 0 ? 500 + speed0 * 1.5 : 240;
-  ship.vel.addScaledVector(fwd, th * A * dt).addScaledVector(right, st * 160 * dt).addScaledVector(up, vt * 160 * dt).addScaledVector(acc, dt);
+  const A = warp && th > 0 ? 1500 + speed0 * 2.2 : 700;
+  ship.vel.addScaledVector(fwd, th * A * dt).addScaledVector(right, st * 400 * dt).addScaledVector(up, vt * 400 * dt).addScaledVector(acc, dt);
   // flight assist: bleed sideways drift so turning feels responsive
   const along = ship.vel.dot(fwd);
   if (th || ship.auto) ship.vel.sub(tD.copy(ship.vel).addScaledVector(fwd, -along).multiplyScalar(1 - Math.exp(-dt * .9)));
   if (k('Space') && ctl) ship.vel.multiplyScalar(Math.exp(-dt * 2.5));
   let speed = ship.vel.length();
   if (!warp && speed > CRUISE) ship.vel.multiplyScalar(Math.max(CRUISE / speed, Math.exp(-dt * 1.8)));
-  lockSpeed = Math.min(MAX_WARP, Math.max(200, lock * .9));
+  lockSpeed = Math.min(MAX_WARP, Math.max(400, lock * 1.1));
   speed = ship.vel.length();
   if (speed > lockSpeed) ship.vel.multiplyScalar(lockSpeed / speed);
   ship.pos.addScaledVector(ship.vel, dt);
@@ -662,10 +665,10 @@ function updateShip(dt) {
       const n = tD.subVectors(ship.pos, b.pos).normalize();
       ship.pos.copy(b.pos).addScaledVector(n, b.R * 1.015 + 3);
       const vn = ship.vel.dot(n); if (vn < 0) ship.vel.addScaledVector(n, -vn * 1.3);
-      if (b.kind === 'star' && simT - lastHeat > 3) { lastHeat = simT; flash(.6, '#ff8a3c'); log('[!] hull temperature critical', 'a2'); }
+      if (b.kind === 'star' && simT - lastHeat > 3) { lastHeat = simT; flash(.6, '#ff8a3c'); }
     }
     if (b.kind === 'bh' && d < b.R) return jump(`swallowed by ${b.name}`);
-    if (b.kind === 'wormhole' && d < b.R * .55) return jump(`traversed ${b.name}`);
+    if (b.kind === 'wormhole' && d < b.R * .9) return jump(`traversed ${b.name}`);
   }
   rate = Math.sqrt(Math.max(0, 1 - (ship.vel.lengthSq() / (C_LIGHT * C_LIGHT)))) * dilation;
   ship.tau += dt * rate;
@@ -707,9 +710,9 @@ function updateDust() {
 
 // ---------------------------------------------------------------- post: lensing + bloom
 const LensShader = {
-  uniforms: { tDiffuse: { value: null }, uC: { value: new THREE.Vector2(.5, .5) }, uR: { value: 0 }, uAspect: { value: 1 }, uOn: { value: 0 }, uWarp: { value: 0 } },
+  uniforms: { tDiffuse: { value: null }, uC: { value: new THREE.Vector2(.5, .5) }, uR: { value: 0 }, uAspect: { value: 1 }, uOn: { value: 0 }, uWarp: { value: 0 }, uT: { value: 0 } },
   vertexShader: 'varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }',
-  fragmentShader: `uniform sampler2D tDiffuse; uniform vec2 uC; uniform float uR,uAspect,uOn,uWarp; varying vec2 vUv;
+  fragmentShader: `uniform sampler2D tDiffuse; uniform vec2 uC; uniform float uR,uAspect,uOn,uWarp,uT; varying vec2 vUv;
   void main(){
     vec2 uv=vUv; float r=1.;
     if(uOn>.5){
@@ -722,6 +725,9 @@ const LensShader = {
     vec3 col=vec3(texture2D(tDiffuse,uv+cd*ca).r, texture2D(tDiffuse,uv).g, texture2D(tDiffuse,uv-cd*ca).b);
     if(uOn>.5) col*=smoothstep(uR*2.35,uR*2.6,r); // photon-capture shadow ~2.6 rs
     col*=1.-.35*pow(length(vUv-.5)*1.35,2.5);
+    float l=dot(col,vec3(.2126,.7152,.0722));
+    col=mix(vec3(l),col,.7)*vec3(1.05,1.,.92); // filmic: desaturated, warm
+    col+=(fract(sin(dot(vUv*1e3+uT,vec2(12.9898,78.233)))*43758.5453)-.5)*.01;
     gl_FragColor=vec4(col,1.);
   }`,
 };
@@ -809,29 +815,45 @@ function updateAudio() {
 }
 let nextBeep = 0;
 
-// ---------------------------------------------------------------- ship model (visible in chase view)
+// ---------------------------------------------------------------- ship model: stainless "Starship"-style hull (chase view)
 const shipMesh = (() => {
   const g = new THREE.Group();
-  const hull = new THREE.MeshStandardMaterial({ color: 0xa8b0b8, metalness: .55, roughness: .4, flatShading: true });
-  const dark = new THREE.MeshStandardMaterial({ color: 0x4a535c, metalness: .4, roughness: .6, flatShading: true });
-  const glass = new THREE.MeshStandardMaterial({ color: 0x0b2a16, emissive: 0x0f6a33, metalness: .9, roughness: .15 });
-  const add = (geo, mat, pos, rot = [0, 0, 0], scl = [1, 1, 1]) => { const m = new THREE.Mesh(geo, mat); m.position.set(...pos); m.rotation.set(...rot); m.scale.set(...scl); g.add(m); return m; };
-  const X = -Math.PI / 2; // cylinder/cone +Y axis -> ship forward (-Z)
-  add(new THREE.CylinderGeometry(.9, 1.5, 8, 8), hull, [0, 0, 0], [X, 0, 0]);
-  add(new THREE.ConeGeometry(.9, 4, 8), hull, [0, 0, -6], [X, 0, 0]);
-  add(new THREE.SphereGeometry(.8, 12, 8), glass, [0, .75, -2.4], [0, 0, 0], [1, .6, 2.2]);
+  const steel = new THREE.MeshStandardMaterial({ color: 0xcfd4da, metalness: .7, roughness: .3, envMapIntensity: 2.5 });
+  const steelD = new THREE.MeshStandardMaterial({ color: 0xa9afb6, metalness: .7, roughness: .35, envMapIntensity: 2.5, side: THREE.DoubleSide });
+  const tiles = new THREE.MeshStandardMaterial({ color: 0x15171a, metalness: .1, roughness: .85 });
+  const add = (geo, mat, pos, rot = [0, 0, 0]) => { const m = new THREE.Mesh(geo, mat); m.position.set(...pos); m.rotation.set(...rot); g.add(m); return m; };
+  const X = -Math.PI / 2; // geometry +Y axis -> ship forward (-Z); geometry +Z -> ship +Y
+  const R = 1.2, L = 13;
+  add(new THREE.CylinderGeometry(R, R, L, 40, 1, true), steel, [0, 0, 0], [X, 0, 0]);
+  const ogive = (k) => Array.from({ length: 24 }, (_, i) => { const t = i / 23; return new THREE.Vector2(R * k * Math.sqrt(1 - t ** 1.7), t * 5); });
+  add(new THREE.LatheGeometry(ogive(1), 40), steel, [0, 0, -L / 2], [X, 0, 0]);
+  // black heat-shield on the belly (-Y): half shells slightly outside the hull
+  add(new THREE.CylinderGeometry(R * 1.012, R * 1.012, L, 40, 1, true, Math.PI / 2, Math.PI), tiles, [0, 0, 0], [X, 0, 0]);
+  add(new THREE.LatheGeometry(ogive(1.012), 40, Math.PI / 2, Math.PI), tiles, [0, 0, -L / 2], [X, 0, 0]);
+  // flaps: small forward pair near the nose, big aft pair
+  // flap: trapezoid in shape XY (x = span, y = chord), extruded for thickness; Rx(90°) maps chord -> +Z (aft)
+  const flap = (w, root, tip) => new THREE.ExtrudeGeometry(new THREE.Shape([new THREE.Vector2(0, 0), new THREE.Vector2(w, root - tip), new THREE.Vector2(w, root), new THREE.Vector2(0, root)]), { depth: .12, bevelEnabled: false });
+  const fwdFlap = flap(1.6, 2.4, 1.1), aftFlap = flap(2.4, 3.6, 1.8);
   for (const s of [-1, 1]) {
-    add(new THREE.BoxGeometry(5.5, .22, 3), dark, [s * 3.6, -.2, 1.6], [0, s * .32, s * -.06]);
-    add(new THREE.BoxGeometry(.18, 2, 2), hull, [s * 1.3, 1.1, 3.2], [-.35, 0, s * .2]);
-    add(new THREE.CylinderGeometry(.55, .65, 2.6, 10), dark, [s * 1.7, -.3, 3.6], [X, 0, 0]);
+    add(fwdFlap, steelD, [s * R * .95, -.2, -L / 2 - 1.4], [Math.PI / 2, 0, 0]).scale.x = s;
+    add(aftFlap, steelD, [s * R * .95, -.2, L / 2 - 4], [Math.PI / 2, 0, 0]).scale.x = s;
   }
-  const flames = [-1, 1].map(s => { const f = sprite(new THREE.Color(.25, 1, .5), 2, .9, 1.6); f.position.set(s * 1.7, -.3, 5.2); g.add(f); return f; });
+  // engine skirt + 3 raptor bells
+  add(new THREE.CylinderGeometry(R, R * .98, .5, 40), steelD, [0, 0, L / 2 + .25], [X, 0, 0]);
+  const bellMat = new THREE.MeshStandardMaterial({ color: 0x2b2420, metalness: .8, roughness: .5, side: THREE.DoubleSide, envMapIntensity: 2 });
+  const flames = [];
+  for (let k = 0; k < 3; k++) {
+    const a = Math.PI / 2 + k * Math.PI * 2 / 3, x = Math.cos(a) * .55, y = Math.sin(a) * .55;
+    add(new THREE.CylinderGeometry(.18, .42, .9, 20, 1, true), bellMat, [x, y, L / 2 + .9], [X, 0, 0]);
+    const f = sprite(new THREE.Color(.65, .78, 1), 1, .8, 1.6); f.position.set(x, y, L / 2 + 1.8); g.add(f); flames.push(f);
+  }
   g.userData.flames = flames;
+  const fill = new THREE.PointLight(0xfff0dc, .9, 0, 0); fill.position.set(-8, 10, 20); g.add(fill); // soft key light so the hull reads against black space
   g.visible = false;
   scene.add(g);
   return g;
 })();
-const camQ = new THREE.Quaternion(), CHASE_OFF = new V3(0, 4.2, 21);
+const camQ = new THREE.Quaternion(), CHASE_OFF = new V3(0, 5, 30);
 const bankQ = new THREE.Quaternion(), bankE = new THREE.Euler();
 function updateCamera(dt) {
   shipMesh.visible = chase;
@@ -839,8 +861,8 @@ function updateCamera(dt) {
   if (chase) {
     shipMesh.position.copy(ship.pos);
     shipMesh.quaternion.copy(ship.q).multiply(bankQ.setFromEuler(bankE.set(0, 0, ship.w.y * .35 - ship.w.z * .1)));
-    const fl = .4 + thrustVis * 2.2 + Math.random() * .3;
-    shipMesh.userData.flames.forEach(f => { f.scale.setScalar(fl); f.material.opacity = .25 + thrustVis * .35; });
+    const fl = thrustVis * (2.2 + Math.random() * .4);
+    shipMesh.userData.flames.forEach(f => { f.scale.set(fl * .7, fl * .7, 1); f.material.opacity = Math.min(1, thrustVis) * .45; });
     camera.position.copy(CHASE_OFF).applyQuaternion(camQ).add(ship.pos);
   } else camera.position.copy(ship.pos);
   camera.quaternion.copy(camQ);
@@ -848,29 +870,23 @@ function updateCamera(dt) {
   $('reticle').classList.toggle('hidden', chase);
 }
 
-// ---------------------------------------------------------------- HUD (terminal)
+// ---------------------------------------------------------------- HUD (text only)
 const $ = id => document.getElementById(id);
-const panel = $('panelBody'), bracket = $('bracket'), blbl = bracket.firstChild, mapLbl = $('mapLbl');
+const stats = $('stats'), bracket = $('bracket'), blbl = bracket.firstChild;
 const fmtD = u => { const km = u * 10; return km < 1e4 ? km.toFixed(0) + ' km' : km < 1e7 ? (km / 1e3).toFixed(1) + ' Mm' : (km / 1e6).toFixed(2) + ' Gm'; };
 const fmtT = s => `${String(Math.floor(s / 3600)).padStart(2, '0')}:${String(Math.floor(s / 60) % 60).padStart(2, '0')}:${String(Math.floor(s) % 60).padStart(2, '0')}`;
-const esc = t => t.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
-const logLines = [];
-function log(msg, cls = 'log') {
-  logLines.push(`<span class="${cls}">${esc(fmtT(simT))} ${esc(msg)}</span>`);
-  if (logLines.length > 4) logLines.shift();
-}
+const worlds = new Set(store.get('dh3d.worlds', []));
 let flashA = 0;
 function flash(a, color) { flashA = a; $('flash').style.background = color; }
 function discover(b) {
   b.disc = true; discSet.add(b.id); store.set('dh3d.disc', [...discSet]);
-  if (started) { log(`[+] charted ${b.name} :: ${b.label.toLowerCase()}`); chime(); }
+  if (b.kind === 'planet' || b.kind === 'moon') { worlds.add(b.id); store.set('dh3d.worlds', [...worlds]); }
+  if (started) chime();
 }
-const row = (k, v) => `<span class="k">${k.padEnd(9, '.')}</span> ${v}`;
 let hudTick = 0;
 function updateHUD(dt) {
   flashA = Math.max(0, flashA - dt * .8); $('flash').style.opacity = flashA;
   $('edge').classList.toggle('on', !!alarm && alarm.lvl > 1);
-  $('radar').classList.toggle('alarm', !!alarm);
   const t = ship.target || ship.cand;
   bracket.classList.toggle('hidden', !t || !started);
   if (t) {
@@ -886,85 +902,84 @@ function updateHUD(dt) {
     bracket.style.width = bracket.style.height = sz + 'px';
     bracket.style.transform = `translate(${(x * .5 + .5) * innerWidth - sz / 2}px, ${(-y * .5 + .5) * innerHeight - sz / 2}px)`;
     bracket.classList.toggle('locked', t === ship.target);
-    if (hudTick % 6 === 0) blbl.innerHTML = `<b>${t.name}</b><br>${t.label.toLowerCase()}${t.disc ? '' : ' [uncharted]'}<br>${fmtD(Math.max(0, ship.pos.distanceTo(t.pos) - (isSolid(t) ? t.R : 0)))}`;
+    if (hudTick % 6 === 0) blbl.innerHTML = `<b>${t.name}</b><br>${t.label.toLowerCase()}${t.disc ? '' : ' [uncharted]'}<br>${fmtD(Math.max(0, ship.pos.distanceTo(t.pos) - (isSolid(t) ? t.R : 0)))}${ship.auto && t === ship.target ? '<br>autopilot' : ''}`;
   }
   if (hudTick++ % 6) return;
-  const sp = ship.vel.length(), s = sectorOf(ship.pos), tt = ship.target;
-  const sign = v => (v >= 0 ? '+' : '') + v;
-  panel.innerHTML = [
-    `<span class="p">root@darkholes:~$</span> nav --status`,
-    row('SPEED', `${(sp * 10).toLocaleString('en', { maximumFractionDigits: 0 })} km/s`) + (sp > CRUISE * 1.05 ? ' <span class="w">[WARP]</span>' : ''),
-    row('BETA', `${(sp / C_LIGHT).toFixed(3)} c`),
-    row('TIME_X', rate.toFixed(3)),
-    row('TAU', `${fmtT(ship.tau)}  <span class="k">t</span> ${fmtT(simT)}`),
-    row('GRAV', `${(gAcc * 10).toFixed(1)} km/s²`),
-    row('SECTOR', `${sign(s.x)} ${sign(s.y)} ${sign(s.z)}`),
-    row('STAR', nearStar ? nearStar.name : '--'),
-    row('CHARTED', discSet.size),
-    row('VIEW', chase ? 'chase [c]' : 'cockpit [c]'),
-    ship.auto ? row('AUTOPLT', `<span class="w">-> ${tt.name}</span>`)
-      : tt ? row('TARGET', `${tt.name} <span class="k">[g] go</span>`)
-        : row('TARGET', ship.cand ? '<span class="k">[t] lock</span>' : '--'),
-    alarm ? `<span class="a${alarm.lvl}">!! ${alarm.lvl > 1 ? 'DANGER' : 'CAUTION'} ${alarm.txt}</span>` : '',
-    ...logLines,
-    `<span class="p">root@darkholes:~$</span> <span class="cur">█</span>`,
+  const sp = ship.vel.length();
+  stats.innerHTML = [
+    `<span class="k">SPEED </span> ${(sp * 10).toLocaleString('en', { maximumFractionDigits: 0 })} km/s${sp > CRUISE * 1.05 ? ' [WARP]' : ''}`,
+    `<span class="k">BETA  </span> ${(sp / C_LIGHT).toFixed(3)} c`,
+    `<span class="k">TIME× </span> ${rate.toFixed(3)}`,
+    `<span class="k">WORLDS</span> ${worlds.size}`,
+    alarm ? `<span class="a${alarm.lvl}">!! ${alarm.txt}</span>` : '',
   ].filter(Boolean).join('\n');
-  mapLbl.textContent = `radar :: rng ${fmtD(RANGES[mapRange])} [m]`;
 }
 
-// ---------------------------------------------------------------- radar (ship-relative, sqrt-scaled, rotating sweep)
+// ---------------------------------------------------------------- radar (ship-relative, sqrt-scaled, sweep, flight path)
 const mapC = $('map'), mg = mapC.getContext('2d');
-mapC.width = mapC.height = 250 * PR;
+mapC.width = mapC.height = 190 * PR;
 const GRN = '57,255,122', TAU2 = Math.PI * 2;
+const trail = []; let trailT = 0;
+function recordTrail(dt) {
+  trailT += dt;
+  const lastP = trail[trail.length - 1];
+  if (trailT > .2 && (!lastP || lastP.distanceToSquared(ship.pos) > 400 * 400)) { trailT = 0; trail.push(ship.pos.clone()); if (trail.length > 900) trail.shift(); }
+}
 let sweep = 0;
 function drawMap(dt) {
   sweep = (sweep + dt * TAU2 / 2.4) % TAU2;
-  const S = mapC.width, c = S / 2, R = S / 2 - 12 * PR, range = RANGES[mapRange];
+  const S = mapC.width, c = S / 2, R = S / 2 - 10 * PR, range = RANGES[mapRange], p = PR;
   mg.clearRect(0, 0, S, S);
-  mg.lineWidth = PR;
-  mg.strokeStyle = `rgba(${GRN},.16)`;
-  [.25, .5, 1].forEach(f => { mg.beginPath(); mg.arc(c, c, R * Math.sqrt(f), 0, TAU2); mg.stroke(); });
+  mg.fillStyle = 'rgba(0,8,3,.35)'; mg.beginPath(); mg.arc(c, c, R + 6 * p, 0, TAU2); mg.fill();
+  mg.lineWidth = p;
+  mg.strokeStyle = alarm ? (alarm.lvl > 1 ? 'rgba(255,64,64,.8)' : 'rgba(255,179,71,.7)') : `rgba(${GRN},.3)`;
+  mg.beginPath(); mg.arc(c, c, R + 6 * p, 0, TAU2); mg.stroke();
+  mg.strokeStyle = `rgba(${GRN},.14)`;
+  [.25, .5].forEach(f => { mg.beginPath(); mg.arc(c, c, R * Math.sqrt(f), 0, TAU2); mg.stroke(); });
   mg.beginPath(); mg.moveTo(c - R, c); mg.lineTo(c + R, c); mg.moveTo(c, c - R); mg.lineTo(c, c + R); mg.stroke();
-  for (let a = 0; a < 36; a++) { // bezel ticks
-    const an = a / 36 * TAU2, l = a % 9 ? 3 : 7;
-    mg.beginPath(); mg.moveTo(c + Math.cos(an) * R, c + Math.sin(an) * R); mg.lineTo(c + Math.cos(an) * (R + l * PR), c + Math.sin(an) * (R + l * PR)); mg.stroke();
-  }
   if (mg.createConicGradient) {
     const g = mg.createConicGradient(sweep - 1, c, c), e = 1 / TAU2;
-    g.addColorStop(0, `rgba(${GRN},0)`); g.addColorStop(e * .999, `rgba(${GRN},.28)`); g.addColorStop(e, `rgba(${GRN},0)`); g.addColorStop(1, `rgba(${GRN},0)`);
+    g.addColorStop(0, `rgba(${GRN},0)`); g.addColorStop(e * .999, `rgba(${GRN},.25)`); g.addColorStop(e, `rgba(${GRN},0)`); g.addColorStop(1, `rgba(${GRN},0)`);
     mg.fillStyle = g; mg.beginPath(); mg.arc(c, c, R, 0, TAU2); mg.fill();
   }
-  mg.strokeStyle = `rgba(${GRN},.8)`; mg.beginPath(); mg.moveTo(c, c); mg.lineTo(c + Math.cos(sweep) * R, c + Math.sin(sweep) * R); mg.stroke();
+  mg.strokeStyle = `rgba(${GRN},.75)`; mg.beginPath(); mg.moveTo(c, c); mg.lineTo(c + Math.cos(sweep) * R, c + Math.sin(sweep) * R); mg.stroke();
 
   const fwd = tF.set(0, 0, -1).applyQuaternion(ship.q), right = tR.set(1, 0, 0).applyQuaternion(ship.q), up = tU.set(0, 1, 0).applyQuaternion(ship.q);
-  let n = 0;
+  const proj = (w, out) => { // world -> radar px; returns false when out of range
+    tD.subVectors(w, ship.pos); const d = tD.length();
+    if (d > range) return false;
+    const k = d < 1 ? 0 : Math.sqrt(d / range) * R / d;
+    out.x = c + tD.dot(right) * k; out.y0 = c - tD.dot(fwd) * k; out.y = out.y0 - tD.dot(up) * k; out.k = k;
+    return true;
+  };
+  const q = {};
+  // flight path
+  mg.strokeStyle = `rgba(${GRN},.55)`; mg.setLineDash([3 * p, 3 * p]); mg.beginPath();
+  let pen = false;
+  for (const w of trail) { if (proj(w, q)) { pen ? mg.lineTo(q.x, q.y) : mg.moveTo(q.x, q.y); pen = true; } else pen = false; }
+  if (pen) mg.lineTo(c, c);
+  mg.stroke(); mg.setLineDash([]);
   for (const b of bodies) {
-    tD.subVectors(b.pos, ship.pos);
-    const d = tD.length();
-    if (d > range || d < 1) continue;
-    n++;
-    const k = Math.sqrt(d / range) * R / d;
-    const x = c + tD.dot(right) * k, y0 = c - tD.dot(fwd) * k, y = y0 - tD.dot(up) * k;
+    if (!proj(b.pos, q)) continue;
+    const { x, y, y0, k } = q;
     const age = (((sweep - Math.atan2(y0 - c, x - c)) % TAU2) + TAU2) % TAU2 / TAU2; // phosphor decay since the sweep passed
     const a = Math.max(.15, 1 - age) * (b.disc ? 1 : .7);
-    const col = b.kind === 'bh' ? `rgba(255,64,64,${a})` : `rgba(${GRN},${a})`;
     mg.strokeStyle = `rgba(${GRN},${a * .35})`; mg.beginPath(); mg.moveTo(x, y0); mg.lineTo(x, y); mg.stroke();
-    mg.fillStyle = mg.strokeStyle = col;
-    const p = PR;
+    mg.fillStyle = mg.strokeStyle = b.kind === 'bh' ? `rgba(255,64,64,${a})` : `rgba(${GRN},${a})`;
     switch (b.kind) {
-      case 'star': mg.fillRect(x - 3.5 * p, y - 3.5 * p, 7 * p, 7 * p); break;
-      case 'planet': mg.beginPath(); mg.arc(x, y, 2.6 * p, 0, TAU2); mg.fill(); break;
+      case 'star': mg.fillRect(x - 3 * p, y - 3 * p, 6 * p, 6 * p); break;
+      case 'planet': mg.beginPath(); mg.arc(x, y, 2.2 * p, 0, TAU2); mg.fill(); break;
       case 'moon': mg.fillRect(x - p, y - p, 2 * p, 2 * p); break;
-      case 'bh': mg.beginPath(); mg.arc(x, y, 4.5 * p, 0, TAU2); mg.stroke(); mg.beginPath(); mg.arc(x, y, 1.5 * p, 0, TAU2); mg.fill(); break;
-      case 'wormhole': mg.beginPath(); mg.moveTo(x, y - 4 * p); mg.lineTo(x + 4 * p, y); mg.lineTo(x, y + 4 * p); mg.lineTo(x - 4 * p, y); mg.closePath(); mg.stroke(); break;
-      case 'nebula': mg.setLineDash([2 * p, 3 * p]); mg.beginPath(); mg.arc(x, y, Math.max(6 * p, b.R * k), 0, TAU2); mg.stroke(); mg.setLineDash([]); break;
+      case 'bh': mg.beginPath(); mg.arc(x, y, 4 * p, 0, TAU2); mg.stroke(); mg.beginPath(); mg.arc(x, y, 1.3 * p, 0, TAU2); mg.fill(); break;
+      case 'wormhole': mg.beginPath(); mg.moveTo(x, y - 3.5 * p); mg.lineTo(x + 3.5 * p, y); mg.lineTo(x, y + 3.5 * p); mg.lineTo(x - 3.5 * p, y); mg.closePath(); mg.stroke(); break;
+      case 'nebula': mg.setLineDash([2 * p, 3 * p]); mg.beginPath(); mg.arc(x, y, Math.max(5 * p, b.R * k), 0, TAU2); mg.stroke(); mg.setLineDash([]); break;
     }
-    if (b === ship.target) { mg.strokeStyle = `rgba(${GRN},1)`; mg.strokeRect(x - 7 * p, y - 7 * p, 14 * p, 14 * p); }
+    if (b === ship.target) { mg.strokeStyle = `rgba(${GRN},1)`; mg.strokeRect(x - 6 * p, y - 6 * p, 12 * p, 12 * p); }
   }
-  mg.fillStyle = `rgba(${GRN},1)`; mg.beginPath(); mg.moveTo(c, c - 6 * PR); mg.lineTo(c - 4 * PR, c + 4 * PR); mg.lineTo(c + 4 * PR, c + 4 * PR); mg.fill();
-  mg.font = `${15 * PR}px VT323, monospace`; mg.fillStyle = `rgba(${GRN},.7)`;
-  mg.fillText(`BLIPS ${String(n).padStart(3, '0')}`, 6 * PR, S - 6 * PR);
-  if (alarm) { mg.fillStyle = alarm.lvl > 1 ? '#ff4040' : '#ffb347'; if (simT % .6 < .4) mg.fillText(alarm.lvl > 1 ? 'DANGER' : 'CAUTION', S - 60 * PR, S - 6 * PR); }
+  mg.fillStyle = `rgba(${GRN},1)`; mg.beginPath(); mg.moveTo(c, c - 5 * p); mg.lineTo(c - 3.5 * p, c + 3.5 * p); mg.lineTo(c + 3.5 * p, c + 3.5 * p); mg.fill();
+  mg.font = `${14 * p}px VT323, monospace`; mg.fillStyle = `rgba(${GRN},.75)`; mg.textAlign = 'center';
+  mg.fillText(`RNG ${fmtD(range)}`, c, S - 2 * p);
+  mg.textAlign = 'left';
 }
 
 // ---------------------------------------------------------------- boot & loop
@@ -978,7 +993,7 @@ let last = performance.now();
 function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(Math.max(now - last, 0) / 1000, .05); last = now;
-  step(dt);
+  if (!paused) step(dt);
   updateDust(); updateLens(); updateHUD(dt); drawMap(dt); updateAudio();
   composer.render();
 }
@@ -987,12 +1002,13 @@ function step(dt) {
   updateSectors();
   updateOrbits();
   updateShip(dt);
+  recordTrail(dt);
   for (const s of sectors.values()) for (const f of s.ticks) f(dt);
   if (nearStar) { sunLight.position.copy(nearStar.pos); sunLight.target.position.copy(ship.pos); }
   const warpF = sstep(CRUISE, MAX_WARP * .8, ship.vel.length());
   camera.fov += (FOV + warpF * 18 - camera.fov) * Math.min(1, dt * 3); camera.updateProjectionMatrix();
   updateCamera(dt);
   starfield.position.copy(camera.position);
-  lens.uniforms.uWarp.value = warpF;
+  lens.uniforms.uWarp.value = warpF; lens.uniforms.uT.value = simT % 100;
 }
 requestAnimationFrame(frame);

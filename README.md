@@ -8,7 +8,7 @@ Two games about gravity and time:
 Runs in any modern browser — no build step.
 
 <p align="center">
-  <img src="docs/3d-home.png" alt="Deep Space: home world" width="420">
+  <img src="docs/3d-wormhole.png" alt="Deep Space: wormhole" width="420">
   &nbsp;
   <img src="docs/3d-chase.png" alt="Deep Space: chase view with nav terminal and radar" width="420">
 </p>
@@ -30,6 +30,7 @@ You start in orbit around a terran world in your home system. Everything else is
 | Lock target under the reticle | `T` |
 | Autopilot to target | `G` |
 | Camera: cockpit / chase (ship seen from outside) | `C` |
+| Pause | `P` |
 | Radar range | `M` |
 | Sound · help | `V` · `H` |
 | Beacon back to the home system | `B` |
@@ -38,7 +39,7 @@ You start in orbit around a terran world in your home system. Everything else is
 
 - **Star systems** — yellow, orange and red dwarfs, white stars, blue giants. Rocky, terran (oceans, clouds, city lights on the night side), gas giants with rings, lava and ice worlds, moons, asteroid belts. Everything orbits in real time.
 - **Black holes** — accretion disk with Doppler beaming and real-time gravitational lensing. Cross the horizon and you get thrown somewhere far away.
-- **Wormholes** — fly through to jump to a distant system.
+- **Wormholes** — spherical lenses onto another region of space; fly through to jump to a distant system.
 - **Nebulae** — huge glowing clouds you can fly into.
 - The universe is deterministic (fixed seed) and flattens into a galactic disk: fly far up or down and it thins out.
 
@@ -51,12 +52,14 @@ You start in orbit around a terran world in your home system. Everything else is
 
 ### HUD
 
-Full-screen view with a green terminal-style HUD:
-
-- **Nav terminal** (bottom left): speed, β, time dilation, proper time τ vs universe time t, local gravity, sector, nearest star, charted bodies, camera view, target, alarms and an event log.
-- **Radar** (bottom right): ship-relative, square-root scaled, rotating sweep with phosphor fade. Stalks show how far above/below you each body is. Squares are stars, dots planets and moons, red rings black holes, diamonds wormholes, dashed circles nebulae.
-- **Proximity / gravity alarm**: CAUTION or DANGER, with a klaxon, when you get close to a surface, approach a black hole's horizon, or local gravity gets strong.
+- **Top bar**: one-line reminder of the main commands.
+- **Bottom left** (text only): speed, β (fraction of c), time dilation factor, number of worlds visited, plus a blinking CAUTION/DANGER line when the proximity / gravity alarm fires (with a klaxon and a red screen edge).
+- **Radar** (bottom right): ship-relative, square-root scaled, rotating sweep with phosphor fade, and a dashed line of the path you've flown. Squares are stars, dots planets and moons, red rings black holes, diamonds wormholes, dashed circles nebulae.
 - Bodies carry catalog designations (`STAR-3F2A`, `STAR-3F2A b`, `STAR-3F2A b I`, `BH-…`, `WH-…`, `NEB-…`), not invented names.
+
+### Look
+
+Inspired by the cinematography of *Interstellar*: a desaturated, warm filmic grade with light grain; sparse white stars; a dusty, golden galactic band; white-gold accretion disks with lensing; wormholes rendered as a spherical lens onto another part of the sky. In chase view (`C`) you fly a stainless-steel, Starship-style vessel with a black heat shield, flaps and three engines, reflecting the sky around it.
 
 ## Classic (2D)
 

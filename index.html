@@ -13,23 +13,20 @@
       font-family: "VT323", ui-monospace, Menlo, monospace; user-select: none; }
     canvas#c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     .hidden { display: none !important; }
-    .term { background: var(--bg); border: 1px solid var(--gd); text-shadow: 0 0 6px rgba(57,255,122,.55); position: fixed; pointer-events: none; }
-    .term::after { content: ""; position: absolute; inset: 0; pointer-events: none;
-      background: repeating-linear-gradient(0deg, rgba(0,0,0,.22) 0 1px, transparent 1px 3px); }
-    .bar { font-size: 15px; padding: 1px 8px; background: var(--gf); border-bottom: 1px solid var(--gd); color: var(--g); letter-spacing: .08em; }
-    #panel { left: 16px; bottom: 16px; width: min(440px, calc(100vw - 290px)); }
-    #panelBody { margin: 0; padding: 6px 10px 8px; font: 18px/1.08 "VT323", monospace; white-space: pre-wrap; word-break: break-word; }
-    #panelBody .k { color: var(--gd); }
-    #panelBody .p { color: #b6ffcf; }
-    #panelBody .w { color: #d9ff6b; }
-    #panelBody .log { color: rgba(57,255,122,.75); }
-    #panelBody .a1 { color: #ffb347; animation: blink .8s steps(2) infinite; }
-    #panelBody .a2 { color: var(--red); animation: blink .4s steps(2) infinite; text-shadow: 0 0 8px rgba(255,64,64,.8); }
+    .term { background: rgba(0,10,4,.62); border: 1px solid var(--gd); text-shadow: 0 0 6px rgba(57,255,122,.55); }
+    .bar { font-size: 15px; padding: 1px 8px; background: var(--gf); border-bottom: 1px solid var(--gd); letter-spacing: .08em; }
+    .hud { position: fixed; pointer-events: none; text-shadow: 0 0 4px #000, 0 0 8px rgba(57,255,122,.45); }
+    #stats { left: 18px; bottom: 16px; margin: 0; font: 20px/1.05 "VT323", monospace; white-space: pre; }
+    #stats .k { color: var(--gd); }
+    #stats .a1 { color: #ffb347; animation: blink .8s steps(2) infinite; }
+    #stats .a2 { color: var(--red); animation: blink .4s steps(2) infinite; }
     .cur { animation: blink 1s steps(2) infinite; }
     @keyframes blink { 50% { opacity: .15; } }
-    #radar { right: 16px; bottom: 16px; width: 252px; }
-    #radar.alarm { border-color: var(--red); }
-    #map { width: 250px; height: 250px; display: block; }
+    #radar { right: 14px; bottom: 12px; }
+    #map { width: 190px; height: 190px; display: block; }
+    #menu { top: 8px; left: 50%; transform: translateX(-50%); font-size: 17px; color: rgba(57,255,122,.55); white-space: nowrap; letter-spacing: .03em; }
+    #menu b { color: var(--g); font-weight: normal; }
+    #paused { top: 42%; left: 50%; transform: translateX(-50%); font-size: 34px; letter-spacing: .3em; }
     #reticle { position: fixed; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; pointer-events: none; opacity: .7;
       background: linear-gradient(var(--g),var(--g)) center/1px 8px no-repeat, linear-gradient(var(--g),var(--g)) center/8px 1px no-repeat; }
     #bracket { position: fixed; left: 0; top: 0; pointer-events: none; --c: var(--gd);
@@ -67,8 +64,10 @@
   <div id="edge"></div>
   <div id="reticle"></div>
   <div id="bracket" class="hidden"><div class="lbl"></div></div>
-  <div id="panel" class="term"><div class="bar">tty0 :: nav</div><div id="panelBody"></div></div>
-  <div id="radar" class="term"><div class="bar" id="mapLbl">radar</div><canvas id="map"></canvas></div>
+  <div id="menu" class="hud"><b>[P]</b> pause · <b>[C]</b> view · <b>[T]</b> lock · <b>[G]</b> autopilot · <b>[Shift]</b> warp · <b>[M]</b> radar · <b>[H]</b> help</div>
+  <pre id="stats" class="hud"></pre>
+  <div id="radar" class="hud"><canvas id="map"></canvas></div>
+  <div id="paused" class="hud hidden">|| PAUSED</div>
   <div id="hint" class="hidden">[ click to steer with the mouse ]</div>
   <div id="flash"></div>
 
@@ -84,6 +83,7 @@
 <span class="k">a / d  r / f</span>    strafe / up-down <span class="k">space</span>  brake
 <span class="k">t</span> lock target   <span class="k">g</span> autopilot   <span class="k">c</span> camera view
 <span class="k">m</span> radar range   <span class="k">v</span> sound   <span class="k">b</span> home   <span class="k">h</span> help
+<span class="k">p</span> pause
 
 &gt; click or press [enter] to launch<span class="cur">█</span>
 
