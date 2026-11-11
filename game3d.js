@@ -5,6 +5,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ConvexGeometry } from 'three/addons/geometries/ConvexGeometry.js';
 
 const V3 = THREE.Vector3;
 // 1 world unit = 10 km. Sectors are cubes; a sector holds at most one star system / black hole / wormhole.
@@ -526,7 +527,7 @@ function updateSectors(all = false) {
 
 // ---------------------------------------------------------------- ship & input
 let simT = store.get('dh3d.t', 0);
-const ship = { pos: new V3(), vel: new V3(), q: new THREE.Quaternion(), w: new V3(), tau: store.get('dh3d.tau', 0), auto: false, target: null, cand: null };
+const ship = { pos: new V3(), vel: new V3(), q: new THREE.Quaternion(), w: new V3(), tau: store.get('dh3d.tau', 0), auto: false, target: null, cand: null, orbit: null, orbitCand: null };
 const keys = {};
 let paused = false, mdx = 0, mdy = 0, mapRange = 1, chase = store.get('dh3d.chase', false), muted = false, started = false, lastHeat = -9;
 const RANGES = [15000, 60000, 240000];
@@ -535,7 +536,7 @@ const lookQ = (from, to, up = new V3(0, 1, 0)) => new THREE.Quaternion().setFrom
 function spawnAt(center, dist) {
   const d = new V3(Math.random() - .5, (Math.random() - .5) * .3, Math.random() - .5).normalize();
   ship.pos.copy(center).addScaledVector(d, dist);
-  ship.vel.set(0, 0, 0); ship.w.set(0, 0, 0); ship.auto = false; ship.target = null; trail.length = 0;
+  ship.vel.set(0, 0, 0); ship.w.set(0, 0, 0); ship.auto = false; ship.target = null; ship.orbit = null; trail.length = 0;
   ship.q.copy(lookQ(ship.pos, center));
   updateSectors(true);
 }
@@ -570,6 +571,7 @@ addEventListener('keydown', e => {
     case 'KeyT': ship.target = ship.target && ship.target === ship.cand ? null : ship.cand; break;
     case 'KeyG': { const t = ship.target || ship.cand; if (t) { ship.target = t; ship.auto = !ship.auto; } break; }
     case 'KeyP': paused = !paused; $('paused').classList.toggle('hidden', !paused); break;
+    case 'KeyO': ship.orbit = ship.orbit ? null : ship.orbitCand; if (ship.orbit) ship.auto = false; break;
     case 'KeyM': mapRange = (mapRange + 1) % RANGES.length; break;
     case 'KeyC': chase = !chase; store.set('dh3d.chase', chase); camQ.copy(ship.q); break;
     case 'KeyV': muted = !muted; if (audio) audio.master.gain.value = muted ? 0 : .35; break;
@@ -586,7 +588,7 @@ const lockPointer = () => { try { const p = canvas.requestPointerLock(); p?.catc
 canvas.addEventListener('click', () => { if (started) lockPointer(); });
 document.getElementById('intro').addEventListener('click', e => { if (!e.target.closest('a')) launch(); });
 
-const tF = new V3(), tR = new V3(), tU = new V3(), tA = new V3(), tD = new V3(), tE = new THREE.Euler(), tQ = new THREE.Quaternion(), tQ2 = new THREE.Quaternion();
+const tO = new V3(), tF = new V3(), tR = new V3(), tU = new V3(), tA = new V3(), tD = new V3(), tE = new THREE.Euler(), tQ = new THREE.Quaternion(), tQ2 = new THREE.Quaternion();
 const isSolid = b => b.kind === 'planet' || b.kind === 'moon' || b.kind === 'star';
 let nearStar = null, dilation = 1, rate = 1, lockSpeed = MAX_WARP, gAcc = 0, alarm = null, thrustVis = 0;
 
@@ -609,7 +611,7 @@ function updateShip(dt) {
 
   // one pass over everything nearby: gravity, mass-lock, riding orbits, time dilation, discovery, target candidate
   const acc = tA.set(0, 0, 0);
-  let lock = Infinity, ride = null, rideK = 6, nsD = Infinity, cand = null, candS = .3, proxS = Infinity, proxB = null, bhK = Infinity, bhB = null;
+  let lock = Infinity, ride = null, rideK = 6, oc = null, ocK = 8, nsD = Infinity, cand = null, candS = .3, proxS = Infinity, proxB = null, bhK = Infinity, bhB = null;
   dilation = 1; nearStar = null;
   for (const b of bodies) {
     tD.subVectors(b.pos, ship.pos);
@@ -620,6 +622,7 @@ function updateShip(dt) {
     if (b.kind === 'bh' && d < b.R * 60) dilation *= Math.sqrt(Math.max(0, 1 - b.R / d));
     if (b.kind === 'star' && d < nsD) { nsD = d; nearStar = b; }
     if (!b.disc && d < b.discR) discover(b);
+    if (isSolid(b) && d / b.R < ocK) { ocK = d / b.R; oc = b; }
     if (isSolid(b) && (d - b.R) / b.R < proxS) { proxS = (d - b.R) / b.R; proxB = b; }
     if (b.kind === 'bh' && d / b.R < bhK) { bhK = d / b.R; bhB = b; }
     if (d > b.R && d < 240000) {
@@ -627,7 +630,9 @@ function updateShip(dt) {
       if (s < candS) { candS = s; cand = b; }
     }
   }
-  ship.cand = cand;
+  ship.cand = cand; ship.orbitCand = oc;
+  if (ship.orbit && (th || st || vt || ship.auto || ship.pos.distanceTo(ship.orbit.pos) > ship.orbit.R * 12)) ship.orbit = null;
+  if (ship.orbit) ride = ship.orbit.kind === 'star' ? null : ship.orbit;
   // proximity / gravity alarm (level 1 = caution, 2 = danger)
   gAcc = acc.length();
   alarm = bhK < 15 ? { lvl: bhK < 6 ? 2 : 1, txt: `EVENT HORIZON ${bhB.name} :: ${bhK.toFixed(1)} rs` }
@@ -651,6 +656,13 @@ function updateShip(dt) {
   // flight assist: bleed sideways drift so turning feels responsive
   const along = ship.vel.dot(fwd);
   if (th || ship.auto) ship.vel.sub(tD.copy(ship.vel).addScaledVector(fwd, -along).multiplyScalar(1 - Math.exp(-dt * .9)));
+  if (ship.orbit) { // station keeping: steer velocity toward a circular orbit at the current radius
+    const b = ship.orbit, n = tD.subVectors(ship.pos, b.pos), r = n.length();
+    n.divideScalar(r);
+    tO.copy(ship.vel).addScaledVector(n, -ship.vel.dot(n));
+    if (tO.lengthSq() < 1) tO.copy(fwd).addScaledVector(n, -fwd.dot(n));
+    ship.vel.lerp(tO.normalize().multiplyScalar(Math.sqrt(b.gm / r)), 1 - Math.exp(-dt * 1.5));
+  }
   if (k('Space') && ctl) ship.vel.multiplyScalar(Math.exp(-dt * 2.5));
   let speed = ship.vel.length();
   if (!warp && speed > CRUISE) ship.vel.multiplyScalar(Math.max(CRUISE / speed, Math.exp(-dt * 1.8)));
@@ -815,40 +827,21 @@ function updateAudio() {
 }
 let nextBeep = 0;
 
-// ---------------------------------------------------------------- ship model: stainless "Starship"-style hull (chase view)
+// ---------------------------------------------------------------- ship model: minimal graphite dart (chase view)
+const HUD_RGB = '242,184,102'; // keep in sync with --c in index.html
 const shipMesh = (() => {
   const g = new THREE.Group();
-  const steel = new THREE.MeshStandardMaterial({ color: 0xcfd4da, metalness: .7, roughness: .3, envMapIntensity: 2.5 });
-  const steelD = new THREE.MeshStandardMaterial({ color: 0xa9afb6, metalness: .7, roughness: .35, envMapIntensity: 2.5, side: THREE.DoubleSide });
-  const tiles = new THREE.MeshStandardMaterial({ color: 0x15171a, metalness: .1, roughness: .85 });
-  const add = (geo, mat, pos, rot = [0, 0, 0]) => { const m = new THREE.Mesh(geo, mat); m.position.set(...pos); m.rotation.set(...rot); g.add(m); return m; };
-  const X = -Math.PI / 2; // geometry +Y axis -> ship forward (-Z); geometry +Z -> ship +Y
-  const R = 1.2, L = 13;
-  add(new THREE.CylinderGeometry(R, R, L, 40, 1, true), steel, [0, 0, 0], [X, 0, 0]);
-  const ogive = (k) => Array.from({ length: 24 }, (_, i) => { const t = i / 23; return new THREE.Vector2(R * k * Math.sqrt(1 - t ** 1.7), t * 5); });
-  add(new THREE.LatheGeometry(ogive(1), 40), steel, [0, 0, -L / 2], [X, 0, 0]);
-  // black heat-shield on the belly (-Y): half shells slightly outside the hull
-  add(new THREE.CylinderGeometry(R * 1.012, R * 1.012, L, 40, 1, true, Math.PI / 2, Math.PI), tiles, [0, 0, 0], [X, 0, 0]);
-  add(new THREE.LatheGeometry(ogive(1.012), 40, Math.PI / 2, Math.PI), tiles, [0, 0, -L / 2], [X, 0, 0]);
-  // flaps: small forward pair near the nose, big aft pair
-  // flap: trapezoid in shape XY (x = span, y = chord), extruded for thickness; Rx(90°) maps chord -> +Z (aft)
-  const flap = (w, root, tip) => new THREE.ExtrudeGeometry(new THREE.Shape([new THREE.Vector2(0, 0), new THREE.Vector2(w, root - tip), new THREE.Vector2(w, root), new THREE.Vector2(0, root)]), { depth: .12, bevelEnabled: false });
-  const fwdFlap = flap(1.6, 2.4, 1.1), aftFlap = flap(2.4, 3.6, 1.8);
-  for (const s of [-1, 1]) {
-    add(fwdFlap, steelD, [s * R * .95, -.2, -L / 2 - 1.4], [Math.PI / 2, 0, 0]).scale.x = s;
-    add(aftFlap, steelD, [s * R * .95, -.2, L / 2 - 4], [Math.PI / 2, 0, 0]).scale.x = s;
-  }
-  // engine skirt + 3 raptor bells
-  add(new THREE.CylinderGeometry(R, R * .98, .5, 40), steelD, [0, 0, L / 2 + .25], [X, 0, 0]);
-  const bellMat = new THREE.MeshStandardMaterial({ color: 0x2b2420, metalness: .8, roughness: .5, side: THREE.DoubleSide, envMapIntensity: 2 });
-  const flames = [];
-  for (let k = 0; k < 3; k++) {
-    const a = Math.PI / 2 + k * Math.PI * 2 / 3, x = Math.cos(a) * .55, y = Math.sin(a) * .55;
-    add(new THREE.CylinderGeometry(.18, .42, .9, 20, 1, true), bellMat, [x, y, L / 2 + .9], [X, 0, 0]);
-    const f = sprite(new THREE.Color(.65, .78, 1), 1, .8, 1.6); f.position.set(x, y, L / 2 + 1.8); g.add(f); flames.push(f);
-  }
-  g.userData.flames = flames;
+  const hull = new THREE.Mesh(new ConvexGeometry([
+    [0, 0, -9], [-5, -.15, 3], [5, -.15, 3], [0, 1.1, 1.2], [0, -.65, 1.4],
+    [-1.5, .45, 3.3], [1.5, .45, 3.3], [-1.5, -.3, 3.3], [1.5, -.3, 3.3],
+  ].map(v => new V3(...v))), new THREE.MeshStandardMaterial({ color: 0x41444a, metalness: .55, roughness: .42, flatShading: true, envMapIntensity: 2 }));
+  g.add(hull);
+  const slitMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(1, .72, .4) });
+  const slit = new THREE.Mesh(new THREE.BoxGeometry(2.6, .22, .05), slitMat); slit.position.set(0, .07, 3.32); g.add(slit);
+  const flame = sprite(new THREE.Color(1, .75, .45), 1, .8, 1.5); flame.position.set(0, .07, 3.9); g.add(flame);
+  const tips = [-1, 1].map(s => { const t = sprite(new THREE.Color(1, .95, .9), .9, .9, 2); t.position.set(s * 4.95, -.1, 2.95); g.add(t); return t; });
   const fill = new THREE.PointLight(0xfff0dc, .9, 0, 0); fill.position.set(-8, 10, 20); g.add(fill); // soft key light so the hull reads against black space
+  g.userData = { flame, slitMat, tips };
   g.visible = false;
   scene.add(g);
   return g;
@@ -861,8 +854,10 @@ function updateCamera(dt) {
   if (chase) {
     shipMesh.position.copy(ship.pos);
     shipMesh.quaternion.copy(ship.q).multiply(bankQ.setFromEuler(bankE.set(0, 0, ship.w.y * .35 - ship.w.z * .1)));
-    const fl = thrustVis * (2.2 + Math.random() * .4);
-    shipMesh.userData.flames.forEach(f => { f.scale.set(fl * .7, fl * .7, 1); f.material.opacity = Math.min(1, thrustVis) * .45; });
+    const { flame, slitMat, tips } = shipMesh.userData, th = Math.min(1, thrustVis);
+    flame.scale.set(2.5 + thrustVis * 3, .5 + thrustVis * 1.4, 1); flame.material.opacity = th * .5;
+    slitMat.color.setRGB(.35 + th * .8, .22 + th * .55, .1 + th * .3);
+    tips.forEach(t => t.material.opacity = simT % 1.6 < .08 ? 1 : .15); // strobe
     camera.position.copy(CHASE_OFF).applyQuaternion(camQ).add(ship.pos);
   } else camera.position.copy(ship.pos);
   camera.quaternion.copy(camQ);
@@ -875,12 +870,18 @@ const $ = id => document.getElementById(id);
 const stats = $('stats'), bracket = $('bracket'), blbl = bracket.firstChild;
 const fmtD = u => { const km = u * 10; return km < 1e4 ? km.toFixed(0) + ' km' : km < 1e7 ? (km / 1e3).toFixed(1) + ' Mm' : (km / 1e6).toFixed(2) + ' Gm'; };
 const fmtT = s => `${String(Math.floor(s / 3600)).padStart(2, '0')}:${String(Math.floor(s / 60) % 60).padStart(2, '0')}:${String(Math.floor(s) % 60).padStart(2, '0')}`;
-const worlds = new Set(store.get('dh3d.worlds', []));
+const worlds = store.get('dh3d.worldlog', []); // [{id, name, label}], oldest first
+const worldsEl = $('worlds');
+const SHORT = { 'Rocky world': 'rocky', 'Terran world': 'terran', 'Gas giant': 'gas giant', 'Lava world': 'lava', 'Ice world': 'ice', Moon: 'moon' };
+const renderWorlds = () => { worldsEl.innerHTML = worlds.slice().reverse().map(w => `<div>${w.name}  <span class="k">${SHORT[w.label] || w.label}</span></div>`).join(''); };
+renderWorlds();
 let flashA = 0;
 function flash(a, color) { flashA = a; $('flash').style.background = color; }
 function discover(b) {
   b.disc = true; discSet.add(b.id); store.set('dh3d.disc', [...discSet]);
-  if (b.kind === 'planet' || b.kind === 'moon') { worlds.add(b.id); store.set('dh3d.worlds', [...worlds]); }
+  if ((b.kind === 'planet' || b.kind === 'moon') && !worlds.some(w => w.id === b.id)) {
+    worlds.push({ id: b.id, name: b.name, label: b.label }); store.set('dh3d.worldlog', worlds); renderWorlds(); worldsEl.scrollTop = 0;
+  }
   if (started) chime();
 }
 let hudTick = 0;
@@ -907,18 +908,20 @@ function updateHUD(dt) {
   if (hudTick++ % 6) return;
   const sp = ship.vel.length();
   stats.innerHTML = [
-    `<span class="k">SPEED </span> ${(sp * 10).toLocaleString('en', { maximumFractionDigits: 0 })} km/s${sp > CRUISE * 1.05 ? ' [WARP]' : ''}`,
+    `<span class="k">SPEED </span> ${(sp * 10).toLocaleString('en', { maximumFractionDigits: 0 })} km/s${sp > CRUISE * 1.05 ? ' · warp' : ''}`,
     `<span class="k">BETA  </span> ${(sp / C_LIGHT).toFixed(3)} c`,
     `<span class="k">TIME× </span> ${rate.toFixed(3)}`,
-    `<span class="k">WORLDS</span> ${worlds.size}`,
+    `<span class="k">WORLDS</span> ${worlds.length} visited`,
     alarm ? `<span class="a${alarm.lvl}">!! ${alarm.txt}</span>` : '',
   ].filter(Boolean).join('\n');
 }
 
-// ---------------------------------------------------------------- radar (ship-relative, sqrt-scaled, sweep, flight path)
+// ---------------------------------------------------------------- radar: tilted 3D disc, sqrt-scaled, sweep, flight path, orbit preview
 const mapC = $('map'), mg = mapC.getContext('2d');
-mapC.width = mapC.height = 190 * PR;
-const GRN = '57,255,122', TAU2 = Math.PI * 2;
+const MW = 230, MH = 210;
+mapC.width = MW * PR; mapC.height = MH * PR;
+const TAU2 = Math.PI * 2, TILT = .5; // disc seen from above-behind: forward axis squashed by TILT
+const A = (a) => `rgba(${HUD_RGB},${a})`;
 const trail = []; let trailT = 0;
 function recordTrail(dt) {
   trailT += dt;
@@ -926,59 +929,102 @@ function recordTrail(dt) {
   if (trailT > .2 && (!lastP || lastP.distanceToSquared(ship.pos) > 400 * 400)) { trailT = 0; trail.push(ship.pos.clone()); if (trail.length > 900) trail.shift(); }
 }
 let sweep = 0;
+const tN = new V3(), tT = new V3(), tW = new V3();
 function drawMap(dt) {
-  sweep = (sweep + dt * TAU2 / 2.4) % TAU2;
-  const S = mapC.width, c = S / 2, R = S / 2 - 10 * PR, range = RANGES[mapRange], p = PR;
-  mg.clearRect(0, 0, S, S);
-  mg.fillStyle = 'rgba(0,8,3,.35)'; mg.beginPath(); mg.arc(c, c, R + 6 * p, 0, TAU2); mg.fill();
-  mg.lineWidth = p;
-  mg.strokeStyle = alarm ? (alarm.lvl > 1 ? 'rgba(255,64,64,.8)' : 'rgba(255,179,71,.7)') : `rgba(${GRN},.3)`;
-  mg.beginPath(); mg.arc(c, c, R + 6 * p, 0, TAU2); mg.stroke();
-  mg.strokeStyle = `rgba(${GRN},.14)`;
-  [.25, .5].forEach(f => { mg.beginPath(); mg.arc(c, c, R * Math.sqrt(f), 0, TAU2); mg.stroke(); });
-  mg.beginPath(); mg.moveTo(c - R, c); mg.lineTo(c + R, c); mg.moveTo(c, c - R); mg.lineTo(c, c + R); mg.stroke();
-  if (mg.createConicGradient) {
-    const g = mg.createConicGradient(sweep - 1, c, c), e = 1 / TAU2;
-    g.addColorStop(0, `rgba(${GRN},0)`); g.addColorStop(e * .999, `rgba(${GRN},.25)`); g.addColorStop(e, `rgba(${GRN},0)`); g.addColorStop(1, `rgba(${GRN},0)`);
-    mg.fillStyle = g; mg.beginPath(); mg.arc(c, c, R, 0, TAU2); mg.fill();
-  }
-  mg.strokeStyle = `rgba(${GRN},.75)`; mg.beginPath(); mg.moveTo(c, c); mg.lineTo(c + Math.cos(sweep) * R, c + Math.sin(sweep) * R); mg.stroke();
-
+  sweep = (sweep + dt * TAU2 / 2.6) % TAU2;
+  const p = PR, cx = MW / 2 * p, cy = 100 * p, R = 98 * p, range = RANGES[mapRange];
   const fwd = tF.set(0, 0, -1).applyQuaternion(ship.q), right = tR.set(1, 0, 0).applyQuaternion(ship.q), up = tU.set(0, 1, 0).applyQuaternion(ship.q);
-  const proj = (w, out) => { // world -> radar px; returns false when out of range
+  const H = Math.sqrt(1 - TILT * TILT);
+  const proj = (w, o) => { // world -> {x, y (on screen), gy (foot on disc), h (height, + = above), px/pz (disc plane), s (perspective)}
     tD.subVectors(w, ship.pos); const d = tD.length();
     if (d > range) return false;
     const k = d < 1 ? 0 : Math.sqrt(d / range) * R / d;
-    out.x = c + tD.dot(right) * k; out.y0 = c - tD.dot(fwd) * k; out.y = out.y0 - tD.dot(up) * k; out.k = k;
+    o.k = k; o.px = tD.dot(right) * k; o.pz = tD.dot(fwd) * k; o.h = tD.dot(up) * k;
+    o.s = 1 / (1 + o.pz / R * .35); // nearer the viewer (behind ship) = bigger
+    o.x = cx + o.px * o.s; o.gy = cy - o.pz * TILT * o.s; o.y = o.gy - o.h * H * o.s;
     return true;
   };
-  const q = {};
+  mg.clearRect(0, 0, mapC.width, mapC.height);
+  mg.lineWidth = p;
+  // collect blips, split by side of the disc so the plane can sit between them
+  const blips = [];
+  for (const b of bodies) { const o = {}; if (proj(b.pos, o)) { o.b = b; blips.push(o); } }
+  blips.sort((a, b) => b.pz - a.pz); // far first
+  const drawBlip = (o, below) => {
+    const b = o.b, ang = Math.atan2(-o.pz, o.px);
+    const age = (((sweep - ang) % TAU2) + TAU2) % TAU2 / TAU2;
+    const a = Math.max(.2, 1 - age) * (b.disc ? 1 : .75) * (below ? .45 : 1);
+    mg.strokeStyle = A(a * .4); mg.setLineDash(below ? [2 * p, 2 * p] : []);
+    mg.beginPath(); mg.moveTo(o.x, o.gy); mg.lineTo(o.x, o.y); mg.stroke(); mg.setLineDash([]);
+    mg.fillStyle = A(a * .5); mg.fillRect(o.x - p, o.gy - .5 * p, 2 * p, p); // foot on the disc
+    const z = o.s * p;
+    mg.fillStyle = mg.strokeStyle = b.kind === 'bh' ? `rgba(255,70,60,${a})` : A(a);
+    switch (b.kind) {
+      case 'star': mg.beginPath(); mg.arc(o.x, o.y, 3.6 * z, 0, TAU2); mg.fill(); mg.strokeStyle = A(a * .35); mg.beginPath(); mg.arc(o.x, o.y, 6 * z, 0, TAU2); mg.stroke(); break;
+      case 'planet': mg.beginPath(); mg.arc(o.x, o.y, 2.3 * z, 0, TAU2); mg.fill(); break;
+      case 'moon': mg.beginPath(); mg.arc(o.x, o.y, 1.2 * z, 0, TAU2); mg.fill(); break;
+      case 'bh': mg.beginPath(); mg.arc(o.x, o.y, 4 * z, 0, TAU2); mg.stroke(); mg.beginPath(); mg.arc(o.x, o.y, 1.4 * z, 0, TAU2); mg.fill(); break;
+      case 'wormhole': mg.beginPath(); mg.arc(o.x, o.y, 3.2 * z, 0, TAU2); mg.stroke(); break;
+      case 'nebula': mg.globalAlpha = .35; mg.setLineDash([2 * p, 3 * p]); mg.beginPath(); mg.ellipse(o.x, o.y, Math.max(5 * p, b.R * o.k * o.s), Math.max(3 * p, b.R * o.k * o.s * TILT), 0, 0, TAU2); mg.stroke(); mg.setLineDash([]); mg.globalAlpha = 1; break;
+    }
+    if (b === ship.target) { mg.strokeStyle = A(1); mg.strokeRect(o.x - 6 * z, o.y - 6 * z, 12 * z, 12 * z); }
+  };
+  blips.filter(o => o.h < 0).forEach(o => drawBlip(o, true));
+  // the disc (translucent, so what's below shows through dimmed)
+  mg.save(); mg.translate(cx, cy); mg.scale(1, TILT);
+  const bg = mg.createRadialGradient(0, 0, 0, 0, 0, R);
+  bg.addColorStop(0, 'rgba(20,14,6,.42)'); bg.addColorStop(1, 'rgba(20,14,6,.22)');
+  mg.fillStyle = bg; mg.beginPath(); mg.arc(0, 0, R, 0, TAU2); mg.fill();
+  mg.lineWidth = p / TILT * .7;
+  mg.strokeStyle = alarm ? (alarm.lvl > 1 ? 'rgba(255,59,59,.8)' : 'rgba(255,140,66,.75)') : A(.45);
+  mg.beginPath(); mg.arc(0, 0, R, 0, TAU2); mg.stroke();
+  mg.strokeStyle = A(.13);
+  [.25, .5].forEach(f => { mg.beginPath(); mg.arc(0, 0, R * Math.sqrt(f), 0, TAU2); mg.stroke(); });
+  mg.beginPath(); mg.moveTo(-R, 0); mg.lineTo(R, 0); mg.moveTo(0, -R); mg.lineTo(0, R); mg.stroke();
+  if (mg.createConicGradient) {
+    const g = mg.createConicGradient(sweep - 1, 0, 0), e = 1 / TAU2;
+    g.addColorStop(0, A(0)); g.addColorStop(e * .999, A(.22)); g.addColorStop(e, A(0)); g.addColorStop(1, A(0));
+    mg.fillStyle = g; mg.beginPath(); mg.arc(0, 0, R, 0, TAU2); mg.fill();
+  }
+  mg.strokeStyle = A(.6); mg.beginPath(); mg.moveTo(0, 0); mg.lineTo(Math.cos(sweep) * R, Math.sin(sweep) * R); mg.stroke();
+  mg.restore();
+  mg.lineWidth = p;
   // flight path
-  mg.strokeStyle = `rgba(${GRN},.55)`; mg.setLineDash([3 * p, 3 * p]); mg.beginPath();
+  const q = {};
+  mg.strokeStyle = A(.5); mg.setLineDash([3 * p, 3 * p]); mg.beginPath();
   let pen = false;
   for (const w of trail) { if (proj(w, q)) { pen ? mg.lineTo(q.x, q.y) : mg.moveTo(q.x, q.y); pen = true; } else pen = false; }
-  if (pen) mg.lineTo(c, c);
+  if (pen) mg.lineTo(cx, cy);
   mg.stroke(); mg.setLineDash([]);
-  for (const b of bodies) {
-    if (!proj(b.pos, q)) continue;
-    const { x, y, y0, k } = q;
-    const age = (((sweep - Math.atan2(y0 - c, x - c)) % TAU2) + TAU2) % TAU2 / TAU2; // phosphor decay since the sweep passed
-    const a = Math.max(.15, 1 - age) * (b.disc ? 1 : .7);
-    mg.strokeStyle = `rgba(${GRN},${a * .35})`; mg.beginPath(); mg.moveTo(x, y0); mg.lineTo(x, y); mg.stroke();
-    mg.fillStyle = mg.strokeStyle = b.kind === 'bh' ? `rgba(255,64,64,${a})` : `rgba(${GRN},${a})`;
-    switch (b.kind) {
-      case 'star': mg.fillRect(x - 3 * p, y - 3 * p, 6 * p, 6 * p); break;
-      case 'planet': mg.beginPath(); mg.arc(x, y, 2.2 * p, 0, TAU2); mg.fill(); break;
-      case 'moon': mg.fillRect(x - p, y - p, 2 * p, 2 * p); break;
-      case 'bh': mg.beginPath(); mg.arc(x, y, 4 * p, 0, TAU2); mg.stroke(); mg.beginPath(); mg.arc(x, y, 1.3 * p, 0, TAU2); mg.fill(); break;
-      case 'wormhole': mg.beginPath(); mg.moveTo(x, y - 3.5 * p); mg.lineTo(x + 3.5 * p, y); mg.lineTo(x, y + 3.5 * p); mg.lineTo(x - 3.5 * p, y); mg.closePath(); mg.stroke(); break;
-      case 'nebula': mg.setLineDash([2 * p, 3 * p]); mg.beginPath(); mg.arc(x, y, Math.max(5 * p, b.R * k), 0, TAU2); mg.stroke(); mg.setLineDash([]); break;
+  // orbit preview around the nearest world: the circle the ship would hold at its current radius
+  const ob = ship.orbit || ship.orbitCand;
+  let hint = '';
+  if (ob) {
+    const n = tN.subVectors(ship.pos, ob.pos), r = n.length(); n.divideScalar(r);
+    tT.copy(ship.vel).addScaledVector(n, -ship.vel.dot(n));
+    const vt = tT.length();
+    if (vt < 1) tT.copy(fwd).addScaledVector(n, -fwd.dot(n));
+    tT.normalize();
+    const vo = Math.sqrt(ob.gm / r);
+    mg.strokeStyle = A(ship.orbit ? .9 : .45); mg.setLineDash(ship.orbit ? [] : [4 * p, 3 * p]); mg.beginPath();
+    pen = false;
+    for (let i = 0; i <= 64; i++) {
+      const t = i / 64 * TAU2;
+      tW.copy(ob.pos).addScaledVector(n, Math.cos(t) * r).addScaledVector(tT, Math.sin(t) * r);
+      if (proj(tW, q)) { pen ? mg.lineTo(q.x, q.y) : mg.moveTo(q.x, q.y); pen = true; } else pen = false;
     }
-    if (b === ship.target) { mg.strokeStyle = `rgba(${GRN},1)`; mg.strokeRect(x - 6 * p, y - 6 * p, 12 * p, 12 * p); }
+    mg.stroke(); mg.setLineDash([]);
+    const dv = vo - vt;
+    hint = ship.orbit ? `ORBIT HOLD ${ob.name} · [O] release`
+      : `${ob.name} · alt ${fmtD(r - ob.R)}\nv ${(vt * 10).toFixed(0)}/${(vo * 10).toFixed(0)} km/s · ${Math.abs(dv) < vo * .1 ? 'in orbit' : dv > 0 ? '[W] speed up' : '[S] slow down'} · [O] hold`;
   }
-  mg.fillStyle = `rgba(${GRN},1)`; mg.beginPath(); mg.moveTo(c, c - 5 * p); mg.lineTo(c - 3.5 * p, c + 3.5 * p); mg.lineTo(c + 3.5 * p, c + 3.5 * p); mg.fill();
-  mg.font = `${14 * p}px VT323, monospace`; mg.fillStyle = `rgba(${GRN},.75)`; mg.textAlign = 'center';
-  mg.fillText(`RNG ${fmtD(range)}`, c, S - 2 * p);
+  blips.filter(o => o.h >= 0).forEach(o => drawBlip(o, false));
+  // ship
+  mg.fillStyle = A(1); mg.beginPath(); mg.moveTo(cx, cy - 5 * p); mg.lineTo(cx - 3.5 * p, cy + 3 * p); mg.lineTo(cx + 3.5 * p, cy + 3 * p); mg.fill();
+  mg.font = `${9.5 * p}px Menlo, ui-monospace, monospace`; mg.textAlign = 'center';
+  mg.fillStyle = A(.6); mg.fillText(`rng ${fmtD(range)} · [M]`, cx, cy + R * TILT + 13 * p);
+  mg.fillStyle = A(.85);
+  hint.split('\n').forEach((l, i) => mg.fillText(l, cx, cy + R * TILT + 27 * p + i * 12 * p));
   mg.textAlign = 'left';
 }
 

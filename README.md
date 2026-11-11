@@ -31,6 +31,7 @@ You start in orbit around a terran world in your home system. Everything else is
 | Autopilot to target | `G` |
 | Camera: cockpit / chase (ship seen from outside) | `C` |
 | Pause | `P` |
+| Hold orbit around the nearest world | `O` |
 | Radar range | `M` |
 | Sound · help | `V` · `H` |
 | Beacon back to the home system | `B` |
@@ -52,14 +53,17 @@ You start in orbit around a terran world in your home system. Everything else is
 
 ### HUD
 
+Soft amber, Menlo, no boxes.
+
 - **Top bar**: one-line reminder of the main commands.
-- **Bottom left** (text only): speed, β (fraction of c), time dilation factor, number of worlds visited, plus a blinking CAUTION/DANGER line when the proximity / gravity alarm fires (with a klaxon and a red screen edge).
-- **Radar** (bottom right): ship-relative, square-root scaled, rotating sweep with phosphor fade, and a dashed line of the path you've flown. Squares are stars, dots planets and moons, red rings black holes, diamonds wormholes, dashed circles nebulae.
+- **Bottom left**: speed, β (fraction of c), time dilation factor, worlds visited, a blinking CAUTION/DANGER line when the proximity / gravity alarm fires (klaxon + red screen edge), and a scrollable list of visited worlds (newest first).
+- **Radar** (bottom right): a tilted, translucent 3D disc around the ship. Stalks show height above/below your plane; things below are drawn dimmed through the disc. Square-root range scaling, rotating sweep with phosphor fade, dashed trail of the path you've flown. Stars have a halo, black holes are red rings, wormholes open rings, nebulae dashed ellipses.
+- **Orbit assist**: near a world the radar draws the circular orbit you'd hold at your current altitude, with your speed vs the orbital speed and a hint (`[W] speed up` / `[S] slow down`). Press `O` to hold that orbit automatically; any thrust releases it.
 - Bodies carry catalog designations (`STAR-3F2A`, `STAR-3F2A b`, `STAR-3F2A b I`, `BH-…`, `WH-…`, `NEB-…`), not invented names.
 
 ### Look
 
-Inspired by the cinematography of *Interstellar*: a desaturated, warm filmic grade with light grain; sparse white stars; a dusty, golden galactic band; white-gold accretion disks with lensing; wormholes rendered as a spherical lens onto another part of the sky. In chase view (`C`) you fly a stainless-steel, Starship-style vessel with a black heat shield, flaps and three engines, reflecting the sky around it.
+Inspired by the cinematography of *Interstellar*: a desaturated, warm filmic grade with light grain; sparse white stars; a dusty, golden galactic band; white-gold accretion disks with lensing; wormholes rendered as a spherical lens onto another part of the sky. In chase view (`C`) you fly a minimal graphite dart with an amber engine slit that lights up with thrust and strobing wingtip lights.
 
 ## Classic (2D)
 
