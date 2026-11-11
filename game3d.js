@@ -5,7 +5,6 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { ConvexGeometry } from 'three/addons/geometries/ConvexGeometry.js';
 
 const V3 = THREE.Vector3;
 // 1 world unit = 10 km. Sectors are cubes; a sector holds at most one star system / black hole / wormhole.
@@ -186,6 +185,12 @@ void main(){ ${FD}
   gl_FragColor=vec4(col*uFade,1.);
 }`;
 
+const BEAM_VS = `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); ${LD} }`;
+const BEAM_FS = `uniform vec3 uC; uniform float uFade,uPow; varying vec2 vUv;
+void main(){ ${FD}
+  float a=pow(clamp(vUv.y,0.,1.),uPow)*(.65+.35*snoise(vec3(vUv.x*8.,vUv.y*14.-uTime*.6,uTime*.2)));
+  gl_FragColor=vec4(uC*a*uFade,1.);
+}`;
 const NEB_VS = `attribute vec4 aData; attribute vec3 aCol; uniform float uFade;
 varying vec2 vUv; varying vec3 vCol; varying float vA;
 void main(){
@@ -217,6 +222,7 @@ void main(){ ${FD}
 const GEO = {
   sphere: new THREE.SphereGeometry(1, 96, 64),
   ring: new THREE.RingGeometry(1.2, 2.6, 160, 1),
+  cone: new THREE.ConeGeometry(1, 1, 32, 1, true).translate(0, -.5, 0), // tip at origin, opening toward -Y
   disk: new THREE.RingGeometry(3, 10, 256, 6),
   rock: (() => {
     const g = new THREE.IcosahedronGeometry(1, 1), p = g.attributes.position;
@@ -305,6 +311,9 @@ const STARS = [
   { k: 'Red dwarf', c: [1, .38, .2], R: [900, 1500], w: 3 },
   { k: 'White star', c: [.95, .95, 1], R: [2200, 3200], w: 1 },
   { k: 'Blue giant', c: [.55, .7, 1], R: [3500, 5200], w: 1 },
+  { k: 'Red giant', c: [1, .42, .18], R: [7000, 10000], w: .6 },
+  { k: 'Brown dwarf', c: [.5, .2, .1], R: [600, 900], w: .8 },
+  { k: 'White dwarf', c: [.85, .9, 1], R: [250, 400], w: .6 },
 ];
 const PTYPES = ['Rocky world', 'Terran world', 'Gas giant', 'Lava world', 'Ice world'];
 const PALS = [
@@ -330,22 +339,58 @@ function orbitPos(b, t, out) {
 }
 const fadeOf = d => 1 - sstep(FADE_NEAR, FADE_FAR, d);
 
+function starVisual(r, col, R, bright) {
+  const obj = new THREE.Group();
+  const surf = new THREE.Mesh(GEO.sphere, smat(SPHERE_VS, STAR_FS, { uC: { value: col.clone().lerp(new THREE.Color(1, 1, 1), .35).multiplyScalar(bright) }, uSeed: { value: new V3(rr(r, 0, 99), rr(r, 0, 99), rr(r, 0, 99)) } }));
+  surf.scale.setScalar(R);
+  const glows = [sprite(col.clone().lerp(new THREE.Color(1, 1, 1), .35), R * 6, .45 * bright), sprite(col, R * 24, .07 * bright), sprite(col.clone().lerp(new THREE.Color(.8, .9, 1), .5), 1, .09 * bright)];
+  glows[2].scale.set(R * 60, R * 1.1, 1); // cinematic horizontal flare
+  obj.add(surf, ...glows);
+  return { obj, glows };
+}
+function makeComet(sec, r, group, star) {
+  const R = rr(r, 40, 90), a = rr(r, 14000, 34000);
+  const b = addBody(sec, {
+    kind: 'comet', label: 'Comet', name: 'C/' + code(r), R, gm: R * R * 5, lockR: R, discR: R * 60,
+    orbit: { parent: star, a, omega: (r() < .5 ? 1 : -1) * rr(r, 80, 160) / a, phase: rr(r, 0, 6.283), incl: rr(r, -.6, .6) },
+  });
+  orbitPos(b, simT, b.pos); b.prev.copy(b.pos);
+  const obj = new THREE.Group();
+  const nucleus = new THREE.Mesh(GEO.rock, MAT.rock); nucleus.scale.setScalar(R);
+  const coma = sprite(new THREE.Color(.75, .88, 1), R * 14, .5, 1.2);
+  const U = { uC: { value: new THREE.Color(.55, .7, .9) }, uFade: { value: 1 }, uPow: { value: 2.2 } };
+  const tail = new THREE.Mesh(GEO.cone, smat(BEAM_VS, BEAM_FS, U, { ...ADD, side: THREE.DoubleSide }));
+  obj.add(nucleus, coma, tail); group.add(obj);
+  const away = new V3(), DOWN = new V3(0, -1, 0);
+  b.obj = obj;
+  b.render = () => {
+    obj.position.copy(b.pos); nucleus.rotation.y = simT * .2;
+    away.subVectors(b.pos, star.pos); const ds = away.length();
+    const L = 1500 + 9000 * (1 - sstep(8000, 40000, ds)); // tail grows near the star, always points away from it
+    tail.quaternion.setFromUnitVectors(DOWN, away.divideScalar(ds)); tail.scale.set(L * .09, L, L * .09);
+  };
+}
 function makeSystem(sec, r, c, home) {
   const st = home ? STARS[0] : wpick(r, STARS), R = rr(r, ...st.R), col = new THREE.Color(...st.c), name = 'STAR-' + code(r);
   const star = addBody(sec, { kind: 'star', label: st.k, name, R, gm: R * R * 35, lockR: R, discR: R * 8 });
   star.pos.copy(c);
-  const obj = new THREE.Group(); obj.position.copy(c);
-  const surf = new THREE.Mesh(GEO.sphere, smat(SPHERE_VS, STAR_FS, { uC: { value: col.clone().lerp(new THREE.Color(1, 1, 1), .35) }, uSeed: { value: new V3(rr(r, 0, 99), rr(r, 0, 99), rr(r, 0, 99)) } }));
-  surf.scale.setScalar(R);
-  const glows = [sprite(col.clone().lerp(new THREE.Color(1, 1, 1), .35), R * 6, .45), sprite(col, R * 24, .07), sprite(col.clone().lerp(new THREE.Color(.8, .9, 1), .5), 1, .09)];
-  glows[2].scale.set(R * 60, R * 1.1, 1); // cinematic horizontal flare
-  obj.add(surf, ...glows);
+  const { obj, glows } = starVisual(r, col, R, st.k === 'Brown dwarf' ? .35 : 1);
+  obj.position.copy(c);
   sec.group.add(obj);
   const sysGroup = new THREE.Group(); sec.group.add(sysGroup);
   const lightCol = col.clone().lerp(new THREE.Color(1, 1, 1), .45);
   const belts = [];
   const dir = r() < .5 ? 1 : -1;
-  let orbit = R * 3 + rr(r, 2500, 5000);
+  let orbit = R * (R > 6000 ? 1.7 : 3) + rr(r, 2500, 5000);
+  if (!home && R < 6000 && r() < .2) { // binary: a close companion star
+    const cs = wpick(r, STARS.slice(0, 3)), cR = R * rr(r, .3, .6), cc = new THREE.Color(...cs.c), a = orbit;
+    const comp = addBody(sec, { kind: 'star', label: cs.k + ' (companion)', name: name + ' B', R: cR, gm: cR * cR * 35, lockR: cR, discR: cR * 8, orbit: { parent: star, a, omega: dir * 70 / a, phase: rr(r, 0, 6.283), incl: 0 } });
+    orbitPos(comp, simT, comp.pos); comp.prev.copy(comp.pos);
+    const cv = starVisual(r, cc, cR, 1);
+    sysGroup.add(cv.obj);
+    comp.obj = cv.obj; comp.render = () => cv.obj.position.copy(comp.pos);
+    orbit += a + cR * 4;
+  }
   const nP = home ? 5 : ri(r, 1, 8);
   for (let i = 0; i < nP && orbit < 36000; i++) {
     const f = orbit / 36000;
@@ -369,6 +414,7 @@ function makeSystem(sec, r, c, home) {
     if (r() < .25 || (home && i === 2)) { belts.push(makeBelt(r, c, orbit)); orbit += 3500; }
   }
   belts.forEach(b => sysGroup.add(b));
+  for (let i = home ? 1 : ri(r, 0, 3); i > 0; i--) makeComet(sec, r, sysGroup, star);
   sec.ticks.push(dt => {
     const d = ship.pos.distanceTo(c), f = fadeOf(d);
     glows.forEach(g => g.material.opacity = g.userData.base * f);
@@ -456,36 +502,70 @@ function makeWormhole(sec, r, c) {
   sec.ticks.push(() => { const f = fadeOf(ship.pos.distanceTo(c)); U.uFade.value = f; glow.material.opacity = .12 * f; });
 }
 
-function makeNebula(sec, r, c) {
-  const S = rr(r, 25000, 50000), pal = pick(r, NEBS).map(x => new THREE.Color(...x)), N = 55;
-  addBody(sec, { kind: 'nebula', label: 'Nebula', name: 'NEB-' + code(r), R: S * .45, discR: S * .45 }).pos.copy(c);
-  const geo = new THREE.PlaneGeometry(1, 1), data = new Float32Array(N * 4), cols = new Float32Array(N * 3);
+function cloud(sec, c, items) { // items: [{p, s, col, a}]
+  const N = items.length, geo = new THREE.PlaneGeometry(1, 1), data = new Float32Array(N * 4), cols = new Float32Array(N * 3);
   const U = { uFade: { value: 1 }, uMap: { value: cloudTex } };
-  const m = new THREE.InstancedMesh(geo, smat(NEB_VS, NEB_FS, U, ADD), N), M = new THREE.Matrix4(), p = new V3(), q = new THREE.Quaternion(), s = new V3(), tc = new THREE.Color();
-  const g = () => (r() + r() + r() - 1.5) / 1.5;
-  for (let i = 0; i < N; i++) {
-    p.set(g() * S * .4, g() * S * .25, g() * S * .4).add(c);
-    m.setMatrixAt(i, M.compose(p, q, s.setScalar(S * rr(r, .25, .7))));
-    data.set([r() * 6.283, rr(r, .025, .06), 0, 0], i * 4);
-    tc.copy(pal[0]).lerp(pal[1], r()).toArray(cols, i * 3);
-  }
+  const m = new THREE.InstancedMesh(geo, smat(NEB_VS, NEB_FS, U, ADD), N), M = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new V3();
+  items.forEach((it, i) => {
+    m.setMatrixAt(i, M.compose(it.p, q, s.setScalar(it.s)));
+    data.set([Math.random() * 6.283, it.a, 0, 0], i * 4);
+    it.col.toArray(cols, i * 3);
+  });
   geo.setAttribute('aData', new THREE.InstancedBufferAttribute(data, 4));
   geo.setAttribute('aCol', new THREE.InstancedBufferAttribute(cols, 3));
   m.frustumCulled = false; m.userData.ownGeo = true;
   sec.group.add(m);
+  sec.ticks.push(() => { U.uFade.value = fadeOf(ship.pos.distanceTo(c)); });
+}
+function makeNebula(sec, r, c) {
+  const S = rr(r, 25000, 50000), pal = pick(r, NEBS).map(x => new THREE.Color(...x));
+  addBody(sec, { kind: 'nebula', label: 'Nebula', name: 'NEB-' + code(r), R: S * .45, discR: S * .45 }).pos.copy(c);
+  const g = () => (r() + r() + r() - 1.5) / 1.5;
+  cloud(sec, c, Array.from({ length: 55 }, () => ({ p: new V3(g() * S * .4, g() * S * .25, g() * S * .4).add(c), s: S * rr(r, .25, .7), col: pal[0].clone().lerp(pal[1], r()), a: rr(r, .025, .06) })));
   const stars = [];
   for (let i = 0; i < 7; i++) {
     const st = sprite(new THREE.Color(.8, .9, 1), rr(r, 500, 1600), .6, 1.2);
     st.position.set(g() * S * .3, g() * S * .2, g() * S * .3).add(c);
     stars.push(st); sec.group.add(st);
   }
-  sec.ticks.push(() => { const f = fadeOf(ship.pos.distanceTo(c)); U.uFade.value = f; stars.forEach(s => s.material.opacity = .6 * f); });
+  sec.ticks.push(() => { const f = fadeOf(ship.pos.distanceTo(c)); stars.forEach(s => s.material.opacity = .6 * f); });
 }
-
-function sectorSystem(sx, sy, sz) { // mirrors makeSector's first rng draws
-  if (!sx && !sy && !sz) return new V3();
-  const r = rng(hash(sx, sy, sz)), roll = r(), off = jit(r, 8000);
-  return roll < pSys(sy) ? off.add(new V3(sx, sy, sz).multiplyScalar(SECTOR)) : null;
+function makePlanetaryNebula(sec, r, c) { // dying star: white dwarf inside a glowing shell
+  const R = rr(r, 250, 380), col = new THREE.Color(.85, .9, 1), name = 'PN-' + code(r);
+  addBody(sec, { kind: 'star', label: 'White dwarf', name: name + ' WD', R, gm: R * R * 300, lockR: R, discR: R * 40 }).pos.copy(c);
+  const { obj, glows } = starVisual(r, col, R, 1.4); obj.position.copy(c); sec.group.add(obj);
+  const Rr = rr(r, 7000, 12000);
+  addBody(sec, { kind: 'nebula', label: 'Planetary nebula', name, R: Rr * 1.3, discR: Rr * 1.5 }).pos.copy(c);
+  const tilt = new THREE.Quaternion().setFromEuler(new THREE.Euler(rr(r, 0, 3), rr(r, 0, 3), 0));
+  const inner = new THREE.Color(.45, .65, .8), outer = new THREE.Color(.95, .45, .3);
+  cloud(sec, c, Array.from({ length: 90 }, () => {
+    const t = r() * 6.283, w = rr(r, -1, 1);
+    const p = new V3(Math.cos(t) * Rr * (1 + w * .18), (r() - .5) * Rr * .35, Math.sin(t) * Rr * (1 + w * .18)).applyQuaternion(tilt).add(c);
+    return { p, s: Rr * rr(r, .35, .7), col: inner.clone().lerp(outer, (w + 1) / 2), a: rr(r, .03, .07) };
+  }));
+  sec.ticks.push(() => { const f = fadeOf(ship.pos.distanceTo(c)); glows.forEach(g => g.material.opacity = g.userData.base * f); });
+}
+function makePulsar(sec, r, c) { // rotating neutron star sweeping two beams
+  const R = rr(r, 60, 110);
+  const b = addBody(sec, { kind: 'pulsar', label: 'Pulsar (neutron star)', name: 'PSR-' + code(r), R, gm: R * R * 20000, lockR: R, discR: R * 220 });
+  b.pos.copy(c); b.period = rr(r, .8, 2.2);
+  const col = new THREE.Color(.75, .85, 1);
+  const { obj, glows } = starVisual(r, col, R, 2.2);
+  const halo = sprite(col, R * 260, .1, 1); obj.add(halo); glows.push(halo);
+  const spin = new THREE.Group(), beams = new THREE.Group();
+  beams.rotation.x = rr(r, .35, .7); // magnetic axis tilted from the spin axis
+  const U = { uC: { value: new THREE.Color(.55, .7, 1) }, uFade: { value: 1 }, uPow: { value: 3 } };
+  for (const s of [1, -1]) {
+    const cone = new THREE.Mesh(GEO.cone, smat(BEAM_VS, BEAM_FS, U, { ...ADD, side: THREE.DoubleSide }));
+    cone.scale.set(1400, 36000, 1400); if (s > 0) cone.rotation.x = Math.PI; beams.add(cone);
+  }
+  spin.add(beams); obj.add(spin);
+  spin.rotation.set(rr(r, 0, 3), 0, rr(r, 0, 3));
+  obj.position.copy(c); sec.group.add(obj);
+  sec.ticks.push(() => {
+    beams.rotation.y = simT / b.period * 6.283;
+    const f = fadeOf(ship.pos.distanceTo(c)); U.uFade.value = f * .35; glows.forEach(g => g.material.opacity = g.userData.base * f);
+  });
 }
 function makeSector(sx, sy, sz) {
   const r = rng(hash(sx, sy, sz)), base = new V3(sx, sy, sz).multiplyScalar(SECTOR);
@@ -495,6 +575,8 @@ function makeSector(sx, sy, sz) {
   else if (roll < p) makeSystem(sec, r, base.clone().add(off), false);
   else if (roll < p + .09) makeBlackHole(sec, r, base.clone().add(off.multiplyScalar(2.5)));
   else if (roll < p + .17) makeWormhole(sec, r, base.clone().add(off.multiplyScalar(2.5)));
+  else if (roll < p + .23) makePulsar(sec, r, base.clone().add(off.multiplyScalar(2.5)));
+  else if (roll < p + .28) makePlanetaryNebula(sec, r, base.clone().add(off.multiplyScalar(2.5)));
   if (r() < .09) makeNebula(sec, r, base.clone().add(jit(r, 30000)));
   scene.add(sec.group);
   return sec;
@@ -527,16 +609,20 @@ function updateSectors(all = false) {
 
 // ---------------------------------------------------------------- ship & input
 let simT = store.get('dh3d.t', 0);
-const ship = { pos: new V3(), vel: new V3(), q: new THREE.Quaternion(), w: new V3(), tau: store.get('dh3d.tau', 0), auto: false, target: null, cand: null, orbit: null, orbitCand: null };
+const ship = { autoOrbit: false, orbitR: 0, pos: new V3(), vel: new V3(), q: new THREE.Quaternion(), w: new V3(), tau: store.get('dh3d.tau', 0), auto: false, target: null, cand: null, orbit: null, orbitCand: null };
 const keys = {};
 let paused = false, mdx = 0, mdy = 0, mapRange = 1, chase = store.get('dh3d.chase', false), muted = false, started = false, lastHeat = -9;
 const RANGES = [15000, 60000, 240000];
+function engageOrbit(b) {
+  ship.orbit = b; ship.auto = ship.autoOrbit = false;
+  ship.orbitR = THREE.MathUtils.clamp(ship.pos.distanceTo(b.pos), b.R * 2, b.R * 7); // a safe, useful altitude
+}
 const lookQ = (from, to, up = new V3(0, 1, 0)) => new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(from, to, up));
 
 function spawnAt(center, dist) {
   const d = new V3(Math.random() - .5, (Math.random() - .5) * .3, Math.random() - .5).normalize();
   ship.pos.copy(center).addScaledVector(d, dist);
-  ship.vel.set(0, 0, 0); ship.w.set(0, 0, 0); ship.auto = false; ship.target = null; ship.orbit = null; trail.length = 0;
+  ship.vel.set(0, 0, 0); ship.w.set(0, 0, 0); ship.auto = ship.autoOrbit = false; ship.target = null; ship.orbit = null; trail.length = 0;
   ship.q.copy(lookQ(ship.pos, center));
   updateSectors(true);
 }
@@ -561,8 +647,7 @@ function jump(msg) {
   spawnAt(dest, 60000);
 }
 
-const introPre = document.querySelector('#intro pre');
-document.getElementById('helpBody').innerHTML = introPre.innerHTML.replace(/^[\s\S]*?(?=<span class="k">mouse)/, '').replace(/&gt; click[\s\S]*/, '&gt; press [h] to close');
+document.getElementById('helpBody').innerHTML = document.getElementById('keys').innerHTML;
 const launch = () => { if (started) return; started = true; document.getElementById('intro').classList.add('hidden'); lockPointer(); initAudio(); };
 addEventListener('keydown', e => {
   keys[e.code] = true;
@@ -571,7 +656,14 @@ addEventListener('keydown', e => {
     case 'KeyT': ship.target = ship.target && ship.target === ship.cand ? null : ship.cand; break;
     case 'KeyG': { const t = ship.target || ship.cand; if (t) { ship.target = t; ship.auto = !ship.auto; } break; }
     case 'KeyP': paused = !paused; $('paused').classList.toggle('hidden', !paused); break;
-    case 'KeyO': ship.orbit = ship.orbit ? null : ship.orbitCand; if (ship.orbit) ship.auto = false; break;
+    case 'KeyO': {
+      if (ship.orbit || ship.autoOrbit) { ship.orbit = null; ship.autoOrbit = ship.auto = false; break; }
+      let t = ship.orbitCand;
+      if (!t) { let best = Infinity; for (const b of bodies) if (isSolid(b) && b.kind !== 'comet') { const d = ship.pos.distanceTo(b.pos) - b.R; if (d < best) { best = d; t = b; } } }
+      if (!t) break;
+      if (t === ship.orbitCand) engageOrbit(t); else { ship.target = t; ship.auto = ship.autoOrbit = true; }
+      break;
+    }
     case 'KeyM': mapRange = (mapRange + 1) % RANGES.length; break;
     case 'KeyC': chase = !chase; store.set('dh3d.chase', chase); camQ.copy(ship.q); break;
     case 'KeyV': muted = !muted; if (audio) audio.master.gain.value = muted ? 0 : .35; break;
@@ -586,10 +678,10 @@ addEventListener('mousemove', e => { if (document.pointerLockElement) { mdx += e
 document.addEventListener('pointerlockchange', () => document.getElementById('hint').classList.toggle('hidden', !!document.pointerLockElement || !started));
 const lockPointer = () => { try { const p = canvas.requestPointerLock(); p?.catch?.(() => { }); } catch { } };
 canvas.addEventListener('click', () => { if (started) lockPointer(); });
-document.getElementById('intro').addEventListener('click', e => { if (!e.target.closest('a')) launch(); });
+document.getElementById('intro').addEventListener('click', launch);
 
 const tO = new V3(), tF = new V3(), tR = new V3(), tU = new V3(), tA = new V3(), tD = new V3(), tE = new THREE.Euler(), tQ = new THREE.Quaternion(), tQ2 = new THREE.Quaternion();
-const isSolid = b => b.kind === 'planet' || b.kind === 'moon' || b.kind === 'star';
+const isSolid = b => b.kind === 'planet' || b.kind === 'moon' || b.kind === 'star' || b.kind === 'pulsar' || b.kind === 'comet';
 let nearStar = null, dilation = 1, rate = 1, lockSpeed = MAX_WARP, gAcc = 0, alarm = null, thrustVis = 0;
 
 function updateShip(dt) {
@@ -600,7 +692,7 @@ function updateShip(dt) {
   let warp = k('ShiftLeft') || k('ShiftRight');
   if (!ctl) th = st = vt = warp = 0;
   const manual = pitch || yaw || roll || th || st || vt || Math.abs(mdx) + Math.abs(mdy) > 2;
-  if (manual && ship.auto) { ship.auto = false; }
+  if (manual && ship.auto) ship.auto = ship.autoOrbit = false;
 
   ship.w.lerp(tA.set(pitch * 1.1, yaw * 1.1, roll * 1.6), 1 - Math.exp(-dt * 5));
   const sens = .0019 * (FOV / camera.fov);
@@ -645,7 +737,7 @@ function updateShip(dt) {
     const t = ship.target, d = ship.pos.distanceTo(t.pos), stop = t.kind === 'nebula' ? t.R : t.kind === 'bh' ? t.R * 14 : t.R * 3.5 + 400;
     ship.q.slerp(tQ2.copy(lookQ(ship.pos, t.pos, up)), 1 - Math.exp(-dt * 2.2));
     const ang = fwd.angleTo(tD.subVectors(t.pos, ship.pos));
-    if (d < stop) { ship.vel.multiplyScalar(Math.exp(-dt * 3)); if (ship.vel.length() < 60) { ship.auto = false; } }
+    if (d < stop) { ship.vel.multiplyScalar(Math.exp(-dt * 3)); if (ship.autoOrbit) engageOrbit(t); else if (ship.vel.length() < 60) ship.auto = false; }
     else { th = ang < .35 ? 1 : 0; warp = ang < .1 && d - stop > 15000 ? 1 : 0; }
   }
 
@@ -657,11 +749,8 @@ function updateShip(dt) {
   const along = ship.vel.dot(fwd);
   if (th || ship.auto) ship.vel.sub(tD.copy(ship.vel).addScaledVector(fwd, -along).multiplyScalar(1 - Math.exp(-dt * .9)));
   if (ship.orbit) { // station keeping: steer velocity toward a circular orbit at the current radius
-    const b = ship.orbit, n = tD.subVectors(ship.pos, b.pos), r = n.length();
-    n.divideScalar(r);
-    tO.copy(ship.vel).addScaledVector(n, -ship.vel.dot(n));
-    if (tO.lengthSq() < 1) tO.copy(fwd).addScaledVector(n, -fwd.dot(n));
-    ship.vel.lerp(tO.normalize().multiplyScalar(Math.sqrt(b.gm / r)), 1 - Math.exp(-dt * 1.5));
+    orbitVel(ship.orbit, ship.orbitR, fwd, tO);
+    ship.vel.lerp(tO, 1 - Math.exp(-dt * 2));
   }
   if (k('Space') && ctl) ship.vel.multiplyScalar(Math.exp(-dt * 2.5));
   let speed = ship.vel.length();
@@ -686,6 +775,16 @@ function updateShip(dt) {
   ship.tau += dt * rate;
 }
 
+// velocity the ship needs for a circular orbit of radius rd around b (prograde = current motion, else where the nose points)
+function orbitVel(b, rd, fwd, out) {
+  const n = tN2.subVectors(ship.pos, b.pos), r = n.length(); n.divideScalar(r);
+  out.copy(ship.vel).addScaledVector(n, -ship.vel.dot(n));
+  if (out.lengthSq() < 25) out.copy(fwd).addScaledVector(n, -fwd.dot(n));
+  if (out.lengthSq() < 1e-6) out.set(0, 1, 0).cross(n);
+  const vo = Math.sqrt(b.gm / rd);
+  return out.normalize().multiplyScalar(vo).addScaledVector(n, THREE.MathUtils.clamp((rd - r) * .6, -vo, vo));
+}
+const tN2 = new V3();
 function updateOrbits() {
   for (const b of bodies) if (b.orbit) { b.prev.copy(b.pos); orbitPos(b, simT, b.pos); b.delta.subVectors(b.pos, b.prev); }
   for (const b of bodies) if (b.render && b.obj.parent.visible) b.render();
@@ -825,28 +924,56 @@ function updateAudio() {
     o.connect(g); g.connect(audio.master); o.start(t); o.stop(t + .13);
   }
 }
-let nextBeep = 0;
+let nextBeep = 0, lastPulse = 0;
+function pulsarTick() { // each beam sweep past you is an audible click, louder when close
+  if (!audio) return;
+  let best = null, bd = 80000;
+  for (const b of bodies) if (b.kind === 'pulsar') { const d = ship.pos.distanceTo(b.pos); if (d < bd) { bd = d; best = b; } }
+  if (!best) return;
+  const k = Math.floor(simT / best.period * 2);
+  if (k === lastPulse) return;
+  lastPulse = k;
+  const t = audio.ctx.currentTime, o = audio.ctx.createOscillator(), g = audio.ctx.createGain();
+  o.type = 'triangle'; o.frequency.value = 1900;
+  g.gain.setValueAtTime(.12 * (1 - bd / 80000), t); g.gain.exponentialRampToValueAtTime(.0001, t + .05);
+  o.connect(g); g.connect(audio.master); o.start(t); o.stop(t + .06);
+}
 
-// ---------------------------------------------------------------- ship model: minimal graphite dart (chase view)
+// ---------------------------------------------------------------- ship model: small aerodynamic spaceplane (chase view)
 const HUD_RGB = '242,184,102'; // keep in sync with --c in index.html
 const shipMesh = (() => {
   const g = new THREE.Group();
-  const hull = new THREE.Mesh(new ConvexGeometry([
-    [0, 0, -9], [-5, -.15, 3], [5, -.15, 3], [0, 1.1, 1.2], [0, -.65, 1.4],
-    [-1.5, .45, 3.3], [1.5, .45, 3.3], [-1.5, -.3, 3.3], [1.5, -.3, 3.3],
-  ].map(v => new V3(...v))), new THREE.MeshStandardMaterial({ color: 0x41444a, metalness: .55, roughness: .42, flatShading: true, envMapIntensity: 2 }));
-  g.add(hull);
-  const slitMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(1, .72, .4) });
-  const slit = new THREE.Mesh(new THREE.BoxGeometry(2.6, .22, .05), slitMat); slit.position.set(0, .07, 3.32); g.add(slit);
-  const flame = sprite(new THREE.Color(1, .75, .45), 1, .8, 1.5); flame.position.set(0, .07, 3.9); g.add(flame);
-  const tips = [-1, 1].map(s => { const t = sprite(new THREE.Color(1, .95, .9), .9, .9, 2); t.position.set(s * 4.95, -.1, 2.95); g.add(t); return t; });
+  const skin = new THREE.MeshStandardMaterial({ color: 0xd9d6cf, metalness: .25, roughness: .5, envMapIntensity: 1.5, side: THREE.DoubleSide });
+  const tiles = new THREE.MeshStandardMaterial({ color: 0x1b1c1f, metalness: .1, roughness: .8, side: THREE.DoubleSide });
+  const glass = new THREE.MeshStandardMaterial({ color: 0x0c0d10, metalness: .9, roughness: .08, envMapIntensity: 3 });
+  const add = (geo, mat, pos, rot = [0, 0, 0], scl = [1, 1, 1], parent = g) => { const m = new THREE.Mesh(geo, mat); m.position.set(...pos); m.rotation.set(...rot); m.scale.set(...scl); parent.add(m); return m; };
+  const X = -Math.PI / 2; // lathe/cylinder +Y -> ship forward (-Z); geometry +Z -> ship +Y
+  // fuselage: smooth lathe profile, tail (y=0) to nose (y=16), flattened vertically
+  const prof = Array.from({ length: 40 }, (_, i) => { const y = i / 39 * 16, t = y / 16; return new THREE.Vector2(Math.max(.001, 1.55 * Math.pow(Math.sin(Math.PI * Math.min(1, (t + .18) / 1.05)), .75) * (1 - Math.pow(t, 6))), y); });
+  add(new THREE.LatheGeometry(prof, 48), skin, [0, 0, 8], [X, 0, 0], [1, 1, .7]);
+  add(new THREE.LatheGeometry(prof.map(v => new THREE.Vector2(v.x * 1.01, v.y)), 48, Math.PI / 2, Math.PI), tiles, [0, 0, 8], [X, 0, 0], [1, 1, .7]); // dark belly tiles
+  add(new THREE.SphereGeometry(1, 24, 16), glass, [0, .72, -3.2], [0, 0, 0], [.62, .38, 1.9]); // canopy
+  // delta wings: swept planform (x = span, y = chord aft), mirrored
+  const wing = new THREE.ExtrudeGeometry(new THREE.Shape([new THREE.Vector2(0, -1.5), new THREE.Vector2(5.4, 4.6), new THREE.Vector2(5.6, 6), new THREE.Vector2(0, 6.4)]), { depth: .16, bevelEnabled: true, bevelThickness: .05, bevelSize: .05, bevelSegments: 1 });
+  const fin = new THREE.ExtrudeGeometry(new THREE.Shape([new THREE.Vector2(0, 0), new THREE.Vector2(3.2, 0), new THREE.Vector2(3.4, 2.6), new THREE.Vector2(2.2, 2.6)]), { depth: .12, bevelEnabled: false });
+  for (const s of [-1, 1]) {
+    add(wing, skin, [s * .9, -.35, .6], [Math.PI / 2, 0, s * .06], [s, 1, 1]);
+    const cant = new THREE.Group(); cant.position.set(s * .55, .45, 3.6); cant.rotation.z = -s * .5; g.add(cant); // V-tail
+    add(fin, skin, [0, 0, 0], [0, -Math.PI / 2, 0], [1, 1, 1], cant);
+  }
+  // engine: nozzle bell + glowing throat
+  add(new THREE.CylinderGeometry(.55, .8, 1.1, 24, 1, true), tiles, [0, 0, 8.45], [X, 0, 0]);
+  const slitMat = new THREE.MeshBasicMaterial({ color: 0x553311, side: THREE.DoubleSide });
+  add(new THREE.CircleGeometry(.55, 24), slitMat, [0, 0, 7.95]);
+  const flame = sprite(new THREE.Color(1, .75, .45), 1, .8, 1.5); flame.position.set(0, 0, 9.6); g.add(flame);
+  const tips = [-1, 1].map(s => { const t = sprite(new THREE.Color(1, .95, .9), .9, .9, 2); t.position.set(s * 6.5, -.35, 5.4); g.add(t); return t; });
   const fill = new THREE.PointLight(0xfff0dc, .9, 0, 0); fill.position.set(-8, 10, 20); g.add(fill); // soft key light so the hull reads against black space
   g.userData = { flame, slitMat, tips };
   g.visible = false;
   scene.add(g);
   return g;
 })();
-const camQ = new THREE.Quaternion(), CHASE_OFF = new V3(0, 5, 30);
+const camQ = new THREE.Quaternion(), CHASE_OFF = new V3(0, 5.5, 34);
 const bankQ = new THREE.Quaternion(), bankE = new THREE.Euler();
 function updateCamera(dt) {
   shipMesh.visible = chase;
@@ -855,7 +982,7 @@ function updateCamera(dt) {
     shipMesh.position.copy(ship.pos);
     shipMesh.quaternion.copy(ship.q).multiply(bankQ.setFromEuler(bankE.set(0, 0, ship.w.y * .35 - ship.w.z * .1)));
     const { flame, slitMat, tips } = shipMesh.userData, th = Math.min(1, thrustVis);
-    flame.scale.set(2.5 + thrustVis * 3, .5 + thrustVis * 1.4, 1); flame.material.opacity = th * .5;
+    flame.scale.setScalar(1 + thrustVis * 3); flame.material.opacity = th * .55;
     slitMat.color.setRGB(.35 + th * .8, .22 + th * .55, .1 + th * .3);
     tips.forEach(t => t.material.opacity = simT % 1.6 < .08 ? 1 : .15); // strobe
     camera.position.copy(CHASE_OFF).applyQuaternion(camQ).add(ship.pos);
@@ -884,6 +1011,17 @@ function discover(b) {
   }
   if (started) chime();
 }
+// world point -> screen px, clamped to the screen edge when off-screen or behind
+function screenPos(w) {
+  tP.copy(w).applyMatrix4(camera.matrixWorldInverse);
+  const behind = tP.z > 0;
+  tP.copy(w).project(camera);
+  let x = tP.x, y = tP.y;
+  if (behind) { x = -x; y = -y; }
+  const edge = behind || Math.abs(x) > .95 || Math.abs(y) > .9;
+  if (edge) { const m = Math.max(Math.abs(x) / .92, Math.abs(y) / .85); x /= m; y /= m; }
+  return [(x * .5 + .5) * innerWidth, (-y * .5 + .5) * innerHeight, edge];
+}
 let hudTick = 0;
 function updateHUD(dt) {
   flashA = Math.max(0, flashA - dt * .8); $('flash').style.opacity = flashA;
@@ -891,27 +1029,28 @@ function updateHUD(dt) {
   const t = ship.target || ship.cand;
   bracket.classList.toggle('hidden', !t || !started);
   if (t) {
-    tP.copy(t.pos).applyMatrix4(camera.matrixWorldInverse);
-    const behind = tP.z > 0;
-    tP.copy(t.pos).project(camera);
-    let x = tP.x, y = tP.y;
-    if (behind) { x = -x; y = -y; }
-    const edge = behind || Math.abs(x) > .95 || Math.abs(y) > .9;
-    if (edge) { const m = Math.max(Math.abs(x) / .92, Math.abs(y) / .85); x /= m; y /= m; }
+    const [sx, sy, edge] = screenPos(t.pos);
     const d = camera.position.distanceTo(t.pos);
     const sz = edge ? 16 : Math.min(400, Math.max(24, t.R / d / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * innerHeight * 1.15));
     bracket.style.width = bracket.style.height = sz + 'px';
-    bracket.style.transform = `translate(${(x * .5 + .5) * innerWidth - sz / 2}px, ${(-y * .5 + .5) * innerHeight - sz / 2}px)`;
+    bracket.style.transform = `translate(${sx - sz / 2}px, ${sy - sz / 2}px)`;
     bracket.classList.toggle('locked', t === ship.target);
     if (hudTick % 6 === 0) blbl.innerHTML = `<b>${t.name}</b><br>${t.label.toLowerCase()}${t.disc ? '' : ' [uncharted]'}<br>${fmtD(Math.max(0, ship.pos.distanceTo(t.pos) - (isSolid(t) ? t.R : 0)))}${ship.auto && t === ship.target ? '<br>autopilot' : ''}`;
+  }
+  const dvEl = $('dv');
+  dvEl.classList.toggle('hidden', !guide || !started);
+  if (guide) {
+    const wp = tW.copy(guide).multiplyScalar(1e5).add(camera.position);
+    const [x, y] = screenPos(wp);
+    dvEl.style.transform = `translate(${x - 9}px, ${y - 9}px)`;
   }
   if (hudTick++ % 6) return;
   const sp = ship.vel.length();
   stats.innerHTML = [
-    `<span class="k">SPEED </span> ${(sp * 10).toLocaleString('en', { maximumFractionDigits: 0 })} km/s${sp > CRUISE * 1.05 ? ' · warp' : ''}`,
+    `<span class="k">SPEED </span> ${ship.vel.dot(tF.set(0, 0, -1).applyQuaternion(ship.q)) < -1 ? '-' : ''}${(sp * 10).toLocaleString('en', { maximumFractionDigits: 0 })} km/s${sp > CRUISE * 1.05 ? ' · warp' : ''}`,
     `<span class="k">BETA  </span> ${(sp / C_LIGHT).toFixed(3)} c`,
     `<span class="k">TIME× </span> ${rate.toFixed(3)}`,
-    `<span class="k">WORLDS</span> ${worlds.length} visited`,
+    `<span class="k">WORLDS</span> ${worlds.length}`,
     alarm ? `<span class="a${alarm.lvl}">!! ${alarm.txt}</span>` : '',
   ].filter(Boolean).join('\n');
 }
@@ -928,7 +1067,7 @@ function recordTrail(dt) {
   const lastP = trail[trail.length - 1];
   if (trailT > .2 && (!lastP || lastP.distanceToSquared(ship.pos) > 400 * 400)) { trailT = 0; trail.push(ship.pos.clone()); if (trail.length > 900) trail.shift(); }
 }
-let sweep = 0;
+let sweep = 0, guide = null; // guide: world direction to burn toward (shown as ◇ on screen)
 const tN = new V3(), tT = new V3(), tW = new V3();
 function drawMap(dt) {
   sweep = (sweep + dt * TAU2 / 2.6) % TAU2;
@@ -965,6 +1104,8 @@ function drawMap(dt) {
       case 'moon': mg.beginPath(); mg.arc(o.x, o.y, 1.2 * z, 0, TAU2); mg.fill(); break;
       case 'bh': mg.beginPath(); mg.arc(o.x, o.y, 4 * z, 0, TAU2); mg.stroke(); mg.beginPath(); mg.arc(o.x, o.y, 1.4 * z, 0, TAU2); mg.fill(); break;
       case 'wormhole': mg.beginPath(); mg.arc(o.x, o.y, 3.2 * z, 0, TAU2); mg.stroke(); break;
+      case 'pulsar': mg.beginPath(); mg.arc(o.x, o.y, 1.8 * z, 0, TAU2); mg.fill(); mg.beginPath(); mg.moveTo(o.x - 6 * z, o.y + 3 * z); mg.lineTo(o.x + 6 * z, o.y - 3 * z); mg.stroke(); break;
+      case 'comet': mg.beginPath(); mg.arc(o.x, o.y, 1.4 * z, 0, TAU2); mg.fill(); mg.strokeStyle = A(a * .5); mg.beginPath(); mg.moveTo(o.x, o.y); mg.lineTo(o.x + 5 * z, o.y - 2 * z); mg.stroke(); break;
       case 'nebula': mg.globalAlpha = .35; mg.setLineDash([2 * p, 3 * p]); mg.beginPath(); mg.ellipse(o.x, o.y, Math.max(5 * p, b.R * o.k * o.s), Math.max(3 * p, b.R * o.k * o.s * TILT), 0, 0, TAU2); mg.stroke(); mg.setLineDash([]); mg.globalAlpha = 1; break;
     }
     if (b === ship.target) { mg.strokeStyle = A(1); mg.strokeRect(o.x - 6 * z, o.y - 6 * z, 12 * z, 12 * z); }
@@ -996,27 +1137,33 @@ function drawMap(dt) {
   for (const w of trail) { if (proj(w, q)) { pen ? mg.lineTo(q.x, q.y) : mg.moveTo(q.x, q.y); pen = true; } else pen = false; }
   if (pen) mg.lineTo(cx, cy);
   mg.stroke(); mg.setLineDash([]);
-  // orbit preview around the nearest world: the circle the ship would hold at its current radius
+  // orbit preview + guidance: the circle you'd hold, and which way to burn to get there
   const ob = ship.orbit || ship.orbitCand;
   let hint = '';
+  guide = null;
   if (ob) {
-    const n = tN.subVectors(ship.pos, ob.pos), r = n.length(); n.divideScalar(r);
-    tT.copy(ship.vel).addScaledVector(n, -ship.vel.dot(n));
-    const vt = tT.length();
-    if (vt < 1) tT.copy(fwd).addScaledVector(n, -fwd.dot(n));
-    tT.normalize();
-    const vo = Math.sqrt(ob.gm / r);
+    const r = ship.pos.distanceTo(ob.pos), rd = ship.orbit ? ship.orbitR : THREE.MathUtils.clamp(r, ob.R * 2, ob.R * 7);
+    const want = orbitVel(ob, rd, fwd, tW), n = tN2, vo = Math.sqrt(ob.gm / rd);
+    tT.copy(want).addScaledVector(n, -want.dot(n)).normalize();
     mg.strokeStyle = A(ship.orbit ? .9 : .45); mg.setLineDash(ship.orbit ? [] : [4 * p, 3 * p]); mg.beginPath();
     pen = false;
+    const cen = tN.copy(ob.pos);
     for (let i = 0; i <= 64; i++) {
       const t = i / 64 * TAU2;
-      tW.copy(ob.pos).addScaledVector(n, Math.cos(t) * r).addScaledVector(tT, Math.sin(t) * r);
-      if (proj(tW, q)) { pen ? mg.lineTo(q.x, q.y) : mg.moveTo(q.x, q.y); pen = true; } else pen = false;
+      const w = tD.copy(cen).addScaledVector(n, Math.cos(t) * rd).addScaledVector(tT, Math.sin(t) * rd).clone();
+      if (proj(w, q)) { pen ? mg.lineTo(q.x, q.y) : mg.moveTo(q.x, q.y); pen = true; } else pen = false;
     }
     mg.stroke(); mg.setLineDash([]);
-    const dv = vo - vt;
-    hint = ship.orbit ? `ORBIT HOLD ${ob.name} · [O] release`
-      : `${ob.name} · alt ${fmtD(r - ob.R)}\nv ${(vt * 10).toFixed(0)}/${(vo * 10).toFixed(0)} km/s · ${Math.abs(dv) < vo * .1 ? 'in orbit' : dv > 0 ? '[W] speed up' : '[S] slow down'} · [O] hold`;
+    const dv = tW.sub(ship.vel), m = dv.length();
+    if (ship.orbit) hint = `ORBIT HOLD ${ob.name}\nalt ${fmtD(r - ob.R)} · [O] release`;
+    else if (m < vo * .12 + 3) hint = `${ob.name} · alt ${fmtD(r - ob.R)}\nstable orbit · [O] hold`;
+    else {
+      const f = dv.dot(fwd) / m, yaw = Math.atan2(dv.dot(right), dv.dot(fwd)) * 57.3, pitch = Math.asin(THREE.MathUtils.clamp(dv.dot(up) / m, -1, 1)) * 57.3;
+      const turn = [Math.abs(yaw) > 3 ? `${yaw > 0 ? 'right' : 'left'} ${Math.abs(yaw).toFixed(0)}°` : '', Math.abs(pitch) > 3 ? `${pitch > 0 ? 'up' : 'down'} ${Math.abs(pitch).toFixed(0)}°` : ''].filter(Boolean).join(' ');
+      const how = f > .97 ? '[W] burn forward' : f < -.97 ? '[S] burn backward' : `turn ${turn} to ◇, then [W]`;
+      hint = `${ob.name} · alt ${fmtD(r - ob.R)} · Δv ${(m * 10).toFixed(0)} km/s\n${how} · or [O] auto`;
+      guide = dv.clone().normalize();
+    }
   }
   blips.filter(o => o.h >= 0).forEach(o => drawBlip(o, false));
   // ship
@@ -1040,7 +1187,7 @@ function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(Math.max(now - last, 0) / 1000, .05); last = now;
   if (!paused) step(dt);
-  updateDust(); updateLens(); updateHUD(dt); drawMap(dt); updateAudio();
+  updateDust(); updateLens(); updateHUD(dt); drawMap(dt); updateAudio(); if (!paused) pulsarTick();
   composer.render();
 }
 function step(dt) {

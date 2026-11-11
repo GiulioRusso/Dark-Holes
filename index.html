@@ -29,6 +29,14 @@
     #map { width: 230px; height: 210px; display: block; }
     #menu { top: 8px; left: 50%; transform: translateX(-50%); font-size: 10.5px; color: var(--cd); white-space: nowrap; }
     #menu b { color: var(--c); font-weight: normal; }
+    #menu i { font-style: normal; opacity: .4; margin: 0 6px; }
+    #dv { left: 0; top: 0; width: 18px; height: 18px; line-height: 18px; text-align: center; font-size: 16px; color: var(--c); }
+    .keys { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 28px; margin: 18px 0; }
+    .keys h3 { margin: 0 0 4px; font: 11px Menlo, monospace; letter-spacing: .25em; color: var(--c); border-bottom: 1px solid var(--cf); padding-bottom: 3px; }
+    .keys div div { display: grid; grid-template-columns: 9.5em 1fr; font-size: 11.5px; line-height: 1.6; }
+    .keys kbd { font: inherit; color: var(--c); }
+    .keys span { color: rgba(255,243,224,.75); }
+    @media (max-width: 640px) { .keys { grid-template-columns: 1fr; } }
     #paused { top: 42%; left: 50%; transform: translateX(-50%); font-size: 18px; letter-spacing: .4em; }
     #reticle { position: fixed; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; pointer-events: none; opacity: .6;
       background: linear-gradient(var(--c),var(--c)) center/1px 6px no-repeat, linear-gradient(var(--c),var(--c)) center/6px 1px no-repeat; }
@@ -48,9 +56,6 @@
     #flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
     #hint { position: fixed; left: 50%; top: 60%; transform: translateX(-50%); font-size: 11px; color: var(--cd); pointer-events: none; }
     .screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(0,0,0,.6); }
-    .screen pre { margin: 0; font: 12.5px/1.6 Menlo, ui-monospace, monospace; white-space: pre-wrap; max-width: 560px; }
-    .screen h1 { font: 300 34px/1 Menlo, ui-monospace, monospace; margin: 0 0 6px; letter-spacing: .3em; color: #fff3e0; }
-    .screen a { color: var(--c); }
     .cur { animation: blink 1s steps(2) infinite; }
     #intro { cursor: pointer; }
   </style>
@@ -66,7 +71,8 @@
   <div id="edge"></div>
   <div id="reticle"></div>
   <div id="bracket" class="hidden"><div class="lbl"></div></div>
-  <div id="menu" class="hud"><b>[P]</b> pause · <b>[C]</b> view · <b>[T]</b> lock · <b>[G]</b> autopilot · <b>[O]</b> orbit · <b>[Shift]</b> warp · <b>[M]</b> radar · <b>[H]</b> help</div>
+  <div id="menu" class="hud">FLY <b>W S</b> thrust · <b>Shift</b> warp · <b>Space</b> brake <i>|</i> NAV <b>T</b> lock · <b>G</b> go · <b>O</b> orbit <i>|</i> VIEW <b>C</b> camera · <b>M</b> radar <i>|</i> <b>P</b> pause · <b>H</b> help</div>
+  <div id="dv" class="hud hidden">◇</div>
   <div id="left" class="hud"><pre id="stats"></pre><div id="worlds"></div></div>
   <div id="radar" class="hud"><canvas id="map"></canvas></div>
   <div id="paused" class="hud hidden">PAUSED</div>
@@ -74,20 +80,35 @@
   <div id="flash"></div>
 
   <div id="intro" class="screen">
-    <pre><h1>DARK HOLES</h1><span class="k">// deep space explorer</span>
-
-<span class="k">mouse / arrows</span>   pitch &amp; yaw       <span class="k">q / e</span>    roll
-<span class="k">w / s</span>            thrust / reverse  <span class="k">shift</span>    warp
-<span class="k">a / d  r / f</span>     strafe / up-down  <span class="k">space</span>    brake
-<span class="k">t</span>  lock target   <span class="k">g</span>  autopilot   <span class="k">o</span>  hold orbit
-<span class="k">c</span>  camera view   <span class="k">m</span>  radar range <span class="k">p</span>  pause
-<span class="k">v</span>  sound         <span class="k">b</span>  home        <span class="k">h</span>  help
-
-&gt; click or press [enter] to launch<span class="cur">_</span>
-
-<a href="classic.html">$ ./classic-2d</a></pre>
+    <div style="max-width:620px">
+      <h1 style="font:300 34px/1 Menlo,monospace;letter-spacing:.3em;color:#fff3e0;margin:0 0 6px">DARK HOLES</h1>
+      <div class="k" style="font-size:12px">// an endless universe to explore. no goal, no game over.</div>
+      <div class="keys" id="keys">
+        <div><h3>FLIGHT</h3>
+          <div><kbd>mouse / arrows</kbd><span>turn (pitch &amp; yaw)</span></div>
+          <div><kbd>Q / E</kbd><span>roll</span></div>
+          <div><kbd>W / S</kbd><span>thrust forward / back</span></div>
+          <div><kbd>A / D · R / F</kbd><span>slide sideways · up / down</span></div>
+          <div><kbd>Space</kbd><span>brake</span></div>
+          <div><kbd>Shift</kbd><span>warp drive (hold with W)</span></div></div>
+        <div><h3>NAVIGATION</h3>
+          <div><kbd>T</kbd><span>lock the object in your sights</span></div>
+          <div><kbd>G</kbd><span>autopilot to the target</span></div>
+          <div><kbd>O</kbd><span>orbit the nearest object (flies there if needed)</span></div>
+          <div><kbd>◇</kbd><span>point here and thrust to reach orbit</span></div>
+          <div><kbd>B</kbd><span>beacon: back to the home system</span></div></div>
+        <div><h3>VIEW</h3>
+          <div><kbd>C</kbd><span>cockpit / outside camera</span></div>
+          <div><kbd>M</kbd><span>radar range</span></div></div>
+        <div><h3>SYSTEM</h3>
+          <div><kbd>P</kbd><span>pause</span></div>
+          <div><kbd>V</kbd><span>sound on / off</span></div>
+          <div><kbd>H</kbd><span>this help</span></div></div>
+      </div>
+      <div style="font-size:12px">&gt; click or press [enter] to launch<span class="cur">_</span></div>
+    </div>
   </div>
-  <div id="help" class="screen hidden"><pre id="helpBody"></pre></div>
+  <div id="help" class="screen hidden"><div style="max-width:620px"><div class="keys" id="helpBody"></div><div class="k" style="font-size:11px">press H to close</div></div></div>
 
   <script type="module" src="game3d.js"></script>
 </body>
