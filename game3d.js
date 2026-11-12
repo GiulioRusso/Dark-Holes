@@ -504,7 +504,7 @@ function makeBlackHole(sec, r, c) {
 
 function makeWormhole(sec, r, c) {
   const R = rr(r, 500, 800);
-  const b = addBody(sec, { kind: 'wormhole', label: 'Wormhole', name: 'WH-' + code(r), R, gm: R * R * 15, lockR: 0, discR: R * 30 });
+  const b = addBody(sec, { kind: 'wormhole', label: 'Wormhole', name: 'WH-' + code(r), R, gm: R * R * 4, lockR: 0, discR: R * 30 });
   b.pos.copy(c);
   const U = { uFade: { value: 1 }, uSky: { value: skyTex } };
   const m = new THREE.Mesh(GEO.sphere, smat(SPHERE_VS, WH_FS, U)); m.scale.setScalar(R); m.position.copy(c);
@@ -578,6 +578,11 @@ function makePulsar(sec, r, c) { // rotating neutron star sweeping two beams
     const f = fadeOf(ship.pos.distanceTo(c)); U.uFade.value = f * .35; glows.forEach(g => g.material.opacity = g.userData.base * f);
   });
 }
+function sectorSystem(sx, sy, sz) { // mirrors makeSector's first rng draws: where (if anywhere) this sector's star system is
+  if (!sx && !sy && !sz) return new V3();
+  const r = rng(hash(sx, sy, sz)), roll = r(), off = jit(r, 8000);
+  return roll < pSys(sy) ? off.add(new V3(sx, sy, sz).multiplyScalar(SECTOR)) : null;
+}
 function makeSector(sx, sy, sz) {
   const r = rng(hash(sx, sy, sz)), base = new V3(sx, sy, sz).multiplyScalar(SECTOR);
   const sec = { key: `${sx},${sy},${sz}`, sx, sy, sz, group: new THREE.Group(), bodies: [], ticks: [], n: 0 };
@@ -604,14 +609,14 @@ function disposeSector(sec) {
 const sectors = new Map();
 let bodies = [];
 const sectorOf = p => ({ x: Math.round(p.x / SECTOR), y: Math.round(p.y / SECTOR), z: Math.round(p.z / SECTOR) });
-function updateSectors(all = false) {
+function updateSectors(budget = 2) { // creates at most `budget` new sectors (nearest first)
   const c = sectorOf(ship.pos), want = [];
   for (let x = -LOAD; x <= LOAD; x++) for (let y = -LOAD; y <= LOAD; y++) for (let z = -LOAD; z <= LOAD; z++) {
     const k = `${c.x + x},${c.y + y},${c.z + z}`;
     if (!sectors.has(k)) want.push([x * x + y * y + z * z, c.x + x, c.y + y, c.z + z, k]);
   }
   let changed = false;
-  want.sort((a, b) => a[0] - b[0]).slice(0, all ? Infinity : 2).forEach(([, x, y, z, k]) => { sectors.set(k, makeSector(x, y, z)); changed = true; });
+  want.sort((a, b) => a[0] - b[0]).slice(0, budget).forEach(([, x, y, z, k]) => { sectors.set(k, makeSector(x, y, z)); changed = true; });
   for (const [k, s] of sectors) {
     if (Math.max(Math.abs(s.sx - c.x), Math.abs(s.sy - c.y), Math.abs(s.sz - c.z)) > LOAD + 1) { disposeSector(s); sectors.delete(k); changed = true; }
   }
@@ -620,7 +625,7 @@ function updateSectors(all = false) {
 
 // ---------------------------------------------------------------- ship & input
 let simT = store.get('dh3d.t', 0);
-const ship = { autoOrbit: false, orbitR: 0, pos: new V3(), vel: new V3(), q: new THREE.Quaternion(), w: new V3(), tau: store.get('dh3d.tau', 0), auto: false, target: null, cand: null, orbit: null, orbitCand: null };
+const ship = { transit: null, autoOrbit: false, orbitR: 0, pos: new V3(), vel: new V3(), q: new THREE.Quaternion(), w: new V3(), tau: store.get('dh3d.tau', 0), auto: false, target: null, cand: null, orbit: null, orbitCand: null };
 const keys = {};
 let paused = false, mdx = 0, mdy = 0, mapRange = 1, chase = store.get('dh3d.chase', false), muted = false, started = false, lastHeat = -9;
 const RANGES = [15000, 60000, 240000];
@@ -635,18 +640,33 @@ function spawnAt(center, dist) {
   ship.pos.copy(center).addScaledVector(d, dist);
   ship.vel.set(0, 0, 0); ship.w.set(0, 0, 0); ship.auto = ship.autoOrbit = false; ship.target = null; ship.orbit = null; trail.length = 0;
   ship.q.copy(lookQ(ship.pos, center));
-  updateSectors(true);
+  updateSectors(27);
 }
 function spawnHome() {
-  ship.pos.set(0, 0, 0); updateSectors(true);
+  ship.pos.set(0, 0, 0); updateSectors(27);
   const pl = sectors.get('0,0,0').home, star = pl.orbit.parent;
   const toStar = star.pos.clone().sub(pl.pos).normalize(), side = toStar.clone().cross(new V3(0, 1, 0)).normalize();
   ship.pos.copy(pl.pos).addScaledVector(toStar.multiplyScalar(.7).add(side.multiplyScalar(.7)).normalize(), pl.R * 3.4).add(new V3(0, pl.R * .5, 0));
   ship.vel.set(0, 0, 0); ship.w.set(0, 0, 0); ship.auto = false; ship.target = null;
   ship.q.copy(lookQ(ship.pos, pl.pos.clone().add(side.multiplyScalar(pl.R * .9))));
-  updateSectors(true);
+  updateSectors(27);
 }
-function jump(msg) {
+// Interstellar-style transit: a tunnel ride hides the teleport and the streaming-in of the new region
+function startTransit(kind, arrive) {
+  ship.transit = { t: 0, dur: 4, kind, arrive, done: false };
+  ship.vel.set(0, 0, 0); ship.auto = ship.autoOrbit = false; ship.orbit = null; ship.target = null; alarm = null;
+}
+function updateTransit(dt) {
+  const tr = ship.transit; tr.t += dt;
+  const u = tr.t / tr.dur;
+  if (!tr.done && u > .4) { tr.done = true; tr.arrive(); }
+  if (tr.done) updateSectors(6);
+  lens.uniforms.uTunnel.value = sstep(0, .18, u) * (1 - sstep(.82, 1, u));
+  lens.uniforms.uTT.value = tr.t;
+  lens.uniforms.uTC.value.set(...(tr.kind === 'bh' ? [1, .45, .2] : tr.kind === 'home' ? [.7, .8, 1] : [1, .85, .6]));
+  if (u >= 1) { ship.transit = null; lens.uniforms.uTunnel.value = 0; flash(.5, '#fff'); }
+}
+function jump(kind) {
   const c = sectorOf(ship.pos);
   let dest = null, n = 0;
   for (let i = 0; i < 500 && !dest; i++) {
@@ -654,8 +674,7 @@ function jump(msg) {
     const d = new V3(Math.random() - .5, (Math.random() - .5) * .2, Math.random() - .5).normalize().multiplyScalar(n);
     dest = sectorSystem(c.x + Math.round(d.x), c.y + Math.round(d.y), c.z + Math.round(d.z));
   }
-  flash(1, '#fff');
-  spawnAt(dest, 60000);
+  startTransit(kind, () => spawnAt(dest, 60000));
 }
 
 document.getElementById('helpBody').innerHTML = document.getElementById('keys').innerHTML;
@@ -664,23 +683,25 @@ addEventListener('keydown', e => {
   keys[e.code] = true;
   if (!started) { if (e.code === 'Enter') launch(); return; }
   switch (e.code) {
-    case 'KeyT': ship.target = ship.target && ship.target === ship.cand ? null : ship.cand; break;
+    case 'KeyT': ship.target = ship.cand && ship.cand !== ship.target ? ship.cand : null; ship.auto = ship.autoOrbit = false; break;
+    case 'KeyX': ship.target = null; ship.auto = ship.autoOrbit = false; ship.orbit = null; break;
     case 'KeyG': { const t = ship.target || ship.cand; if (t) { ship.target = t; ship.auto = !ship.auto; } break; }
     case 'KeyP': paused = !paused; $('paused').classList.toggle('hidden', !paused); break;
     case 'KeyN': setShip((shipIdx + 1) % SHIPS.length); chase = true; store.set('dh3d.chase', true); camQ.copy(ship.q); break;
     case 'KeyO': {
       if (ship.orbit || ship.autoOrbit) { ship.orbit = null; ship.autoOrbit = ship.auto = false; break; }
-      let t = ship.orbitCand;
+      // what you're looking at first, then the locked target, then whatever is nearest
+      let t = [ship.cand, ship.target].find(b => b && isSolid(b) && b.kind !== 'comet') || ship.orbitCand;
       if (!t) { let best = Infinity; for (const b of bodies) if (isSolid(b) && b.kind !== 'comet') { const d = ship.pos.distanceTo(b.pos) - b.R; if (d < best) { best = d; t = b; } } }
       if (!t) break;
-      if (t === ship.orbitCand) engageOrbit(t); else { ship.target = t; ship.auto = ship.autoOrbit = true; }
+      if (ship.pos.distanceTo(t.pos) < t.R * 8) engageOrbit(t); else { ship.target = t; ship.auto = ship.autoOrbit = true; }
       break;
     }
     case 'KeyM': mapRange = (mapRange + 1) % RANGES.length; break;
     case 'KeyC': chase = !chase; store.set('dh3d.chase', chase); camQ.copy(ship.q); break;
     case 'KeyV': muted = !muted; if (audio) audio.master.gain.value = muted ? 0 : .35; break;
     case 'KeyH': document.getElementById('help').classList.toggle('hidden'); break;
-    case 'KeyB': flash(1, '#fff'); spawnHome(); break;
+    case 'KeyB': if (!ship.transit) startTransit('home', spawnHome); break;
   }
   if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
 });
@@ -788,8 +809,8 @@ function updateShip(dt) {
       const vn = ship.vel.dot(n); if (vn < 0) ship.vel.addScaledVector(n, -vn * 1.3);
       if (b.kind === 'star' && simT - lastHeat > 3) { lastHeat = simT; flash(.6, '#ff8a3c'); }
     }
-    if (b.kind === 'bh' && d < b.R) return jump(`swallowed by ${b.name}`);
-    if (b.kind === 'wormhole' && d < b.R * .9) return jump(`traversed ${b.name}`);
+    if (b.kind === 'bh' && d < b.R) return jump('bh');
+    if (b.kind === 'wormhole' && d < b.R * .9) return jump('wormhole');
   }
   rate = Math.sqrt(Math.max(0, 1 - (ship.vel.lengthSq() / (C_LIGHT * C_LIGHT)))) * dilation;
   ship.tau += dt * rate;
@@ -841,9 +862,9 @@ function updateDust() {
 
 // ---------------------------------------------------------------- post: lensing + bloom
 const LensShader = {
-  uniforms: { tDiffuse: { value: null }, uC: { value: new THREE.Vector2(.5, .5) }, uR: { value: 0 }, uAspect: { value: 1 }, uOn: { value: 0 }, uWarp: { value: 0 }, uT: { value: 0 } },
+  uniforms: { tDiffuse: { value: null }, uC: { value: new THREE.Vector2(.5, .5) }, uR: { value: 0 }, uAspect: { value: 1 }, uOn: { value: 0 }, uWarp: { value: 0 }, uT: { value: 0 }, uTunnel: { value: 0 }, uTT: { value: 0 }, uTC: { value: new THREE.Vector3(1, .85, .6) } },
   vertexShader: 'varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }',
-  fragmentShader: `uniform sampler2D tDiffuse; uniform vec2 uC; uniform float uR,uAspect,uOn,uWarp,uT; varying vec2 vUv;
+  fragmentShader: NOISE + `uniform sampler2D tDiffuse; uniform vec2 uC; uniform vec3 uTC; uniform float uR,uAspect,uOn,uWarp,uT,uTunnel,uTT; varying vec2 vUv;
   void main(){
     vec2 uv=vUv; float r=1.;
     if(uOn>.5){
@@ -856,6 +877,16 @@ const LensShader = {
     vec3 col=vec3(texture2D(tDiffuse,uv+cd*ca).r, texture2D(tDiffuse,uv).g, texture2D(tDiffuse,uv-cd*ca).b);
     if(uOn>.5){ col*=smoothstep(uR*2.35,uR*2.6,r); col+=vec3(1.,.9,.75)*exp(-pow((r-uR*2.62)/(uR*.025+.0005),2.))*.35; } // shadow ~2.6 rs + photon ring
     col*=1.-.35*pow(length(vUv-.5)*1.35,2.5);
+    if(uTunnel>0.){ // transit tunnel: rings of light rushing past, a bright exit ahead
+      vec2 d=vUv-.5; d.x*=uAspect; float r=length(d)+1e-3, a=atan(d.y,d.x);
+      float z=.3/r+uTT*2.6;
+      float n=snoise(vec3(cos(a)*1.6,sin(a)*1.6,z*.7));
+      float streak=pow(max(snoise(vec3(cos(a)*9.,sin(a)*9.,z*.12)),0.),2.5);
+      vec3 tc=mix(vec3(.03,.025,.02),uTC,smoothstep(-.3,.9,n))*(.25+streak*2.2)*smoothstep(.0,.08,r);
+      tc+=mix(uTC,vec3(1.),.6)*pow(smoothstep(.22,0.,r),2.)*(.4+uTT*.35);
+      vec3 bent=texture2D(tDiffuse,.5+(vUv-.5)*(1.-uTunnel*.6*r)).rgb; // scene pulled into the throat
+      col=mix(col,bent*.12+tc,uTunnel);
+    }
     float l=dot(col,vec3(.2126,.7152,.0722));
     col=mix(vec3(l),col,.7)*vec3(1.05,1.,.92); // filmic: desaturated, warm
     col+=(fract(sin(dot(vUv*1e3+uT,vec2(12.9898,78.233)))*43758.5453)-.5)*.01;
@@ -1141,6 +1172,10 @@ function updateHUD(dt) {
     `<span class="k">TIME×  </span> ${rate.toFixed(3)}`,
     `<span class="k">ALT    </span> ${nearSurf && nearSurf[0] < 2e5 ? `${fmtD(Math.max(0, nearSurf[0]))} <span class="k">${nearSurf[1].name}</span>` : '--'}`,
     `<span class="k">CHARTED</span> ${worlds.length}`,
+    ship.transit ? `<span class="k">MODE   </span> ${ship.transit.kind === 'home' ? 'beacon recall' : 'transit'}…`
+      : ship.orbit ? `<span class="k">MODE   </span> orbit ${ship.orbit.name} <span class="k">[O]/[X] release</span>`
+      : ship.auto ? `<span class="k">MODE   </span> ${ship.autoOrbit ? 'to orbit' : 'autopilot'} → ${ship.target.name} <span class="k">[X] cancel</span>`
+      : ship.target ? `<span class="k">MODE   </span> locked ${ship.target.name} <span class="k">[T]/[X] unlock</span>` : '',
     alarm ? `<span class="a${alarm.lvl}">!! ${alarm.txt}</span>` : '',
   ].filter(Boolean).join('\n');
 }
@@ -1253,7 +1288,7 @@ function drawMap(dt) {
 
 // ---------------------------------------------------------------- boot & loop
 const saved = store.get('dh3d.ship', null);
-if (saved) { ship.pos.fromArray(saved.p); ship.q.fromArray(saved.q); updateSectors(true); }
+if (saved) { ship.pos.fromArray(saved.p); ship.q.fromArray(saved.q); updateSectors(27); }
 else spawnHome();
 camQ.copy(ship.q);
 setInterval(() => { store.set('dh3d.ship', { p: ship.pos.toArray(), q: ship.q.toArray() }); store.set('dh3d.t', simT); store.set('dh3d.tau', ship.tau); }, 3000);
@@ -1270,8 +1305,7 @@ function step(dt) {
   simT += dt; UT.value = simT;
   updateSectors();
   updateOrbits();
-  updateShip(dt);
-  recordTrail(dt);
+  if (ship.transit) updateTransit(dt); else { updateShip(dt); recordTrail(dt); }
   for (const s of sectors.values()) for (const f of s.ticks) f(dt);
   if (nearStar) { sunLight.position.copy(nearStar.pos); sunLight.target.position.copy(ship.pos); }
   const warpF = sstep(CRUISE, MAX_WARP * .8, ship.vel.length());
