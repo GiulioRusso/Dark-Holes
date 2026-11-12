@@ -1,6 +1,6 @@
 # Dark Holes
 
-An endless, procedurally generated universe to explore from the cockpit of your ship (spaceplane, Starship-style or retro rocket). No goal, no game over: fly between star systems, orbit strange worlds, chase comets, dive past pulsars and fall into black holes.
+An endless, procedurally generated universe to explore from the cockpit of your ship: a Dream Chaser-style lifting body, a shuttle orbiter, an Orion-style capsule with its service module, a Starship-style steel ship or a retro rocket. No goal, no game over: fly between star systems, orbit strange worlds, chase comets, dive past pulsars and fall into black holes.
 
 **Play in the browser:** https://giuliorusso.github.io/Dark-Holes/
 

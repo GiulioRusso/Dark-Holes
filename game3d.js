@@ -1048,54 +1048,109 @@ function panelTex(base, line, tilesX, tilesY, seed) { // procedural hull panelli
 }
 const newShip = () => { const g = new THREE.Group(); g.userData = { flames: [], throats: [], tips: [] }; return g; };
 
-function buildSpaceplane() { // lifting-body spaceplane: ceramic upper skin, black tiles below, twin fins, two engines
-  const g = newShip();
-  const skin = new THREE.MeshStandardMaterial({ map: panelTex('#dcdad4', 'rgba(60,60,60,.35)', 16, 8, 3), metalness: .15, roughness: .55, envMapIntensity: 1.2, side: THREE.DoubleSide });
-  const tiles = new THREE.MeshStandardMaterial({ map: panelTex('#1d1e21', 'rgba(0,0,0,.6)', 32, 16, 4), metalness: .05, roughness: .85, side: THREE.DoubleSide });
-  const glass = new THREE.MeshStandardMaterial({ color: 0x08090b, metalness: .9, roughness: .06, envMapIntensity: 3 });
-  const prof = Array.from({ length: 48 }, (_, i) => { // tail (y=0) -> nose (y=17): straight mid-body, ogive nose
-    const y = i / 47 * 17, t = y / 17;
-    const body = .95 + .45 * sstep(0, .3, t), nose = t > .55 ? Math.sqrt(Math.max(0, 1 - ((t - .55) / .45) ** 2)) : 1;
-    return new THREE.Vector2(Math.max(.001, body * nose), y);
+function hexTex(seed) { // black hexagonal heat-shield tiles with slight variation
+  const t = canvasTex(512, (c, S) => {
+    const r = rng(seed), w = 16, h = w * Math.sqrt(3) / 2;
+    c.fillStyle = '#0c0d0f'; c.fillRect(0, 0, S, S);
+    for (let y = -1, row = 0; y < S / h + 1; y++, row++) for (let x = -1; x < S / w + 1; x++) {
+      const cx = x * w + (row % 2) * w / 2, cy = y * h, g = 22 + r() * 14 | 0;
+      c.fillStyle = `rgb(${g},${g},${g + 2})`; c.beginPath();
+      for (let k = 0; k < 6; k++) { const a = Math.PI / 6 + k * Math.PI / 3; c.lineTo(cx + Math.cos(a) * w * .54, cy + Math.sin(a) * w * .54); }
+      c.fill();
+    }
   });
-  part(g, new THREE.LatheGeometry(prof, 56), skin, [0, 0, 8.5], [X90, 0, 0], [1, 1, .62]);
-  part(g, new THREE.LatheGeometry(prof.map(v => new THREE.Vector2(v.x * 1.01, v.y)), 56, Math.PI / 2, Math.PI), tiles, [0, 0, 8.5], [X90, 0, 0], [1, 1, .62]);
-  // cockpit windows: a thin dark band, not a bubble
-  part(g, new THREE.SphereGeometry(1, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2), glass, [0, .5, -4.2], [-.12, 0, 0], [.75, .32, 1.3]);
-  // cranked delta wing with a thin profile
-  const wing = new THREE.ExtrudeGeometry(new THREE.Shape([new THREE.Vector2(0, -3.5), new THREE.Vector2(1.6, 0), new THREE.Vector2(5.8, 5.2), new THREE.Vector2(5.9, 6.6), new THREE.Vector2(0, 7)]),
-    { depth: .12, bevelEnabled: true, bevelThickness: .04, bevelSize: .06, bevelSegments: 2 });
-  const fin = new THREE.ExtrudeGeometry(new THREE.Shape([new THREE.Vector2(0, 0), new THREE.Vector2(3, 0), new THREE.Vector2(3.3, 2.4), new THREE.Vector2(2.3, 2.4)]), { depth: .1, bevelEnabled: true, bevelThickness: .03, bevelSize: .04, bevelSegments: 1 });
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+const halfLathe = (prof, upper, segs = 48) => new THREE.LatheGeometry(prof, segs, upper ? -Math.PI / 2 : Math.PI / 2, Math.PI); // upper: ship +Y half
+const ceramic = seed => new THREE.MeshStandardMaterial({ map: panelTex('#e2e0da', 'rgba(70,70,70,.3)', 14, 8, seed), metalness: .1, roughness: .55, envMapIntensity: 1.1, side: THREE.DoubleSide });
+const tileMat = seed => new THREE.MeshStandardMaterial({ map: panelTex('#1b1c1f', 'rgba(0,0,0,.65)', 40, 20, seed), metalness: .05, roughness: .85, side: THREE.DoubleSide });
+const glassMat = () => new THREE.MeshStandardMaterial({ color: 0x07080a, metalness: .9, roughness: .06, envMapIntensity: 3 });
+const navLights = (g, x, y, z) => [-1, 1].forEach(s => { const t = sprite(new THREE.Color(s < 0 ? 1 : .6, s < 0 ? .35 : 1, s < 0 ? .3 : .6), .7, .9, 2); t.position.set(s * x, y, z); g.add(t); g.userData.tips.push(t); });
+
+function buildLiftingBody() { // Dream Chaser-style: blunt lifting body, flat black belly, two wings canted steeply up
+  const g = newShip(), skin = ceramic(3), tiles = tileMat(4);
+  const prof = Array.from({ length: 48 }, (_, i) => { const y = i / 47 * 15, t = y / 15; return new THREE.Vector2(Math.max(.001, 1.75 * (1 - .28 * t) * Math.sqrt(Math.max(0, 1 - t ** 3.5))), y); });
+  part(g, halfLathe(prof, true), skin, [0, 0, 7.5], [X90, 0, 0], [1, 1, .78]);   // rounded top
+  part(g, halfLathe(prof, false), tiles, [0, 0, 7.5], [X90, 0, 0], [1, 1, .38]); // flat underside
+  part(g, new THREE.SphereGeometry(1, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2), glassMat(), [0, .62, -4.4], [-.18, 0, 0], [.8, .3, 1.1]); // windows
+  const wing = new THREE.ExtrudeGeometry(new THREE.Shape([new THREE.Vector2(0, 0), new THREE.Vector2(3.6, 3.2), new THREE.Vector2(3.8, 5.4), new THREE.Vector2(0, 6.2)]), { depth: .14, bevelEnabled: true, bevelThickness: .04, bevelSize: .06, bevelSegments: 2 });
   for (const s of [-1, 1]) {
-    part(g, wing, skin, [s * .85, -.28, 1.4], [Math.PI / 2, 0, s * .04], [s, 1, 1]);
-    const cant = new THREE.Group(); cant.position.set(s * 1.0, .35, 5.6); cant.rotation.z = -s * .26; g.add(cant);
-    part(cant, fin, skin, [0, 0, 0], [0, -Math.PI / 2, 0]);
-    const t = sprite(new THREE.Color(s < 0 ? 1 : .6, s < 0 ? .35 : 1, s < 0 ? .3 : .6), .8, .9, 2); t.position.set(s * 6.8, -.25, 8.1); g.add(t); g.userData.tips.push(t); // nav lights
+    const cant = new THREE.Group(); cant.position.set(s * 1.25, -.15, 1.2); cant.rotation.z = s * .85; g.add(cant); // ~50° dihedral like the real vehicle
+    part(cant, wing, skin, [0, 0, 0], [Math.PI / 2, 0, 0], [s, 1, 1]);
+    part(g, new THREE.BoxGeometry(.9, .1, .9), tiles, [s * .7, -.55, 7.6], [.2, 0, 0]); // body flaps
   }
-  part(g, new THREE.BoxGeometry(2.2, .14, 1.1), tiles, [0, -.45, 8.9]); // body flap
-  engine(g, -.5, 0, 8.6, .48, new THREE.Color(1, .78, .5));
-  engine(g, .5, 0, 8.6, .48, new THREE.Color(1, .78, .5));
+  navLights(g, 3.6, 2.7, 6.2);
+  engine(g, 0, .15, 7.5, .38, new THREE.Color(1, .8, .55));
+  engine(g, -.6, -.05, 7.5, .26, new THREE.Color(1, .8, .55));
+  engine(g, .6, -.05, 7.5, .26, new THREE.Color(1, .8, .55));
   return g;
 }
-function buildStarship() { // stainless steel, heat shield on the belly, flaps, three engines
-  const g = newShip();
-  const steel = new THREE.MeshStandardMaterial({ map: panelTex('#c9ced4', 'rgba(90,95,100,.35)', 24, 10, 5), metalness: .75, roughness: .3, envMapIntensity: 2.2 });
-  const steelD = new THREE.MeshStandardMaterial({ color: 0xa9afb6, metalness: .7, roughness: .35, envMapIntensity: 2, side: THREE.DoubleSide });
-  const tiles = new THREE.MeshStandardMaterial({ map: panelTex('#17181b', 'rgba(0,0,0,.6)', 64, 24, 6), metalness: .05, roughness: .85 });
-  const R = 1.3, L = 13;
-  part(g, new THREE.CylinderGeometry(R, R, L, 48, 1, true), steel, [0, 0, 0], [X90, 0, 0]);
-  const ogive = k => Array.from({ length: 28 }, (_, i) => { const t = i / 27; return new THREE.Vector2(Math.max(.001, R * k * Math.sqrt(1 - t ** 1.7)), t * 5.5); });
-  part(g, new THREE.LatheGeometry(ogive(1), 48), steel, [0, 0, -L / 2], [X90, 0, 0]);
-  part(g, new THREE.CylinderGeometry(R * 1.012, R * 1.012, L, 48, 1, true, Math.PI / 2, Math.PI), tiles, [0, 0, 0], [X90, 0, 0]);
-  part(g, new THREE.LatheGeometry(ogive(1.012), 48, Math.PI / 2, Math.PI), tiles, [0, 0, -L / 2], [X90, 0, 0]);
-  const flap = (w, root, tip) => new THREE.ExtrudeGeometry(new THREE.Shape([new THREE.Vector2(0, 0), new THREE.Vector2(w, root - tip), new THREE.Vector2(w, root), new THREE.Vector2(0, root)]), { depth: .12, bevelEnabled: false });
-  const ff = flap(1.6, 2.4, 1.1), af = flap(2.5, 3.8, 1.9);
+function buildShuttle() { // orbiter: long fuselage, double-delta wing, tall fin, OMS pods, three main engines
+  const g = newShip(), skin = ceramic(7), tiles = tileMat(8);
+  const prof = Array.from({ length: 52 }, (_, i) => { const y = i / 51 * 18, t = y / 18; return new THREE.Vector2(Math.max(.001, 1.3 * (t > .78 ? Math.sqrt(Math.max(0, 1 - ((t - .78) / .22) ** 2)) : 1) * (t < .06 ? .92 + t * 1.3 : 1)), y); });
+  part(g, halfLathe(prof, true), skin, [0, 0, 9], [X90, 0, 0], [1, 1, .95]);
+  part(g, halfLathe(prof, false), tiles, [0, 0, 9], [X90, 0, 0], [1, 1, .95]);
+  part(g, new THREE.SphereGeometry(1, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2), glassMat(), [0, .78, -5.6], [-.3, 0, 0], [.85, .32, .9]);
+  const wingShape = new THREE.Shape([new THREE.Vector2(0, -6), new THREE.Vector2(1.2, -2.2), new THREE.Vector2(5.6, 5.2), new THREE.Vector2(5.8, 6.4), new THREE.Vector2(0, 6.9)]);
+  const wing = new THREE.ExtrudeGeometry(wingShape, { depth: .14, bevelEnabled: true, bevelThickness: .04, bevelSize: .05, bevelSegments: 1 });
+  const under = new THREE.ShapeGeometry(wingShape);
   for (const s of [-1, 1]) {
-    part(g, ff, steelD, [s * R * .95, -.2, -L / 2 - 1.6], [Math.PI / 2, 0, 0], [s, 1, 1]);
-    part(g, af, steelD, [s * R * .95, -.2, L / 2 - 4.2], [Math.PI / 2, 0, 0], [s, 1, 1]);
+    part(g, wing, skin, [s * .95, -.55, 2.3], [Math.PI / 2, 0, 0], [s, 1, 1]);
+    part(g, under, tiles, [s * .95, -.75, 2.3], [Math.PI / 2, 0, 0], [s, 1, 1]); // black underside of the wing
+    part(g, new THREE.SphereGeometry(1, 20, 12), skin, [s * .85, .85, 7.6], [0, 0, 0], [.48, .42, 1.7]); // OMS pods
   }
-  part(g, new THREE.CircleGeometry(R, 48), steelD, [0, 0, L / 2 + .01]);
-  for (let k = 0; k < 3; k++) { const a = Math.PI / 2 + k * Math.PI * 2 / 3; engine(g, Math.cos(a) * .6, Math.sin(a) * .6, L / 2, .42, new THREE.Color(.65, .78, 1)); }
+  const fin = new THREE.ExtrudeGeometry(new THREE.Shape([new THREE.Vector2(0, 0), new THREE.Vector2(4.4, 0), new THREE.Vector2(4.6, 4.4), new THREE.Vector2(3.3, 4.4)]), { depth: .22, bevelEnabled: true, bevelThickness: .04, bevelSize: .05, bevelSegments: 1 });
+  part(g, fin, skin, [.11, 1.05, 4.4], [0, -Math.PI / 2, 0]);
+  part(g, new THREE.BoxGeometry(2.2, .14, 1.0), tiles, [0, -.9, 9.3]); // body flap
+  navLights(g, 6.75, -.5, 8.9);
+  [[0, .55], [-.6, -.3], [.6, -.3]].forEach(([x, y]) => engine(g, x, y, 9, .42, new THREE.Color(.75, .82, 1)));
+  return g;
+}
+function buildCapsule() { // Orion-style: conical crew module on a service module with four X-wing solar arrays
+  const g = newShip();
+  const shell = new THREE.MeshStandardMaterial({ map: panelTex('#b9bcc0', 'rgba(40,40,40,.35)', 24, 6, 9), metalness: .55, roughness: .4, envMapIntensity: 1.6, side: THREE.DoubleSide });
+  const sm = new THREE.MeshStandardMaterial({ map: panelTex('#d8d6d0', 'rgba(60,60,60,.3)', 12, 4, 10), metalness: .2, roughness: .5, envMapIntensity: 1.2 });
+  const shield = new THREE.MeshStandardMaterial({ color: 0x3a2a1e, metalness: .1, roughness: .9, side: THREE.DoubleSide });
+  const cells = canvasTex(256, (c, S) => { c.fillStyle = '#0d1a36'; c.fillRect(0, 0, S, S); c.strokeStyle = 'rgba(160,180,220,.35)'; for (let i = 0; i <= 8; i++) { c.beginPath(); c.moveTo(i * S / 8, 0); c.lineTo(i * S / 8, S); c.moveTo(0, i * S / 8); c.lineTo(S, i * S / 8); c.stroke(); } });
+  const panel = new THREE.MeshStandardMaterial({ map: cells, metalness: .5, roughness: .3, envMapIntensity: 2, side: THREE.DoubleSide });
+  part(g, new THREE.CylinderGeometry(.85, 2.5, 2.4, 40, 1, true), shell, [0, 0, -3.1], [X90, 0, 0]);   // crew module (narrow end forward)
+  part(g, new THREE.CylinderGeometry(.55, .65, .7, 24), shell, [0, 0, -4.6], [X90, 0, 0]);             // docking tunnel
+  part(g, new THREE.CircleGeometry(2.5, 40), shield, [0, 0, -1.9]);                                      // heat shield
+  for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2 + .4; part(g, new THREE.BoxGeometry(.38, .3, .05), glassMat(), [Math.cos(a) * 1.55, Math.sin(a) * 1.55, -3.3], [0, 0, a]); }
+  part(g, new THREE.CylinderGeometry(2.25, 2.25, 3.4, 40), sm, [0, 0, -.1], [X90, 0, 0]);                // service module
+  for (let k = 0; k < 4; k++) { // X-wing arrays: three panels each
+    const arm = new THREE.Group(); arm.rotation.z = Math.PI / 4 + k * Math.PI / 2; arm.position.z = .6; g.add(arm);
+    part(arm, new THREE.CylinderGeometry(.06, .06, 1, 6), shell, [2.75, 0, 0], [0, 0, Math.PI / 2]);
+    for (let i = 0; i < 3; i++) part(arm, new THREE.BoxGeometry(1.9, .04, 1.9), panel, [4.3 + i * 2.05, 0, 0]);
+  }
+  engine(g, 0, 0, 1.6, .6, new THREE.Color(.8, .85, 1));
+  navLights(g, 2.3, 0, 1.6);
+  return g;
+}
+function buildStarship() { // stainless ship: ring welds, hex-tile heat shield on the windward side, chines, 2+2 flaps, 3 SL + 3 RVac engines
+  const g = newShip();
+  const steel = new THREE.MeshStandardMaterial({ map: panelTex('#c3c8cd', 'rgba(70,75,80,.45)', 3, 22, 5), metalness: .8, roughness: .28, envMapIntensity: 2.3, side: THREE.DoubleSide });
+  const hex = hexTex(6); hex.repeat.set(3, 6);
+  const tiles = new THREE.MeshStandardMaterial({ map: hex, metalness: .05, roughness: .8, side: THREE.DoubleSide });
+  const R = 1.3, L = 13;
+  const ogive = k => Array.from({ length: 30 }, (_, i) => { const t = i / 29; return new THREE.Vector2(Math.max(.001, R * k * Math.sqrt(1 - t ** 1.6)), t * 6); });
+  // windward (-Y) half is tiled; tiles wrap a bit past the sides like the real vehicle
+  part(g, new THREE.CylinderGeometry(R, R, L, 56, 1, true, -Math.PI / 2 + .25, Math.PI - .5), steel, [0, 0, 0], [X90, 0, 0]);
+  part(g, new THREE.CylinderGeometry(R, R, L, 56, 1, true, Math.PI / 2 - .25, Math.PI + .5), tiles, [0, 0, 0], [X90, 0, 0]);
+  part(g, new THREE.LatheGeometry(ogive(1), 56, -Math.PI / 2 + .25, Math.PI - .5), steel, [0, 0, -L / 2], [X90, 0, 0]);
+  part(g, new THREE.LatheGeometry(ogive(1), 56, Math.PI / 2 - .25, Math.PI + .5), tiles, [0, 0, -L / 2], [X90, 0, 0]);
+  const flap = (w, root, tip) => new THREE.ExtrudeGeometry(new THREE.Shape([new THREE.Vector2(0, 0), new THREE.Vector2(w, root - tip), new THREE.Vector2(w, root), new THREE.Vector2(0, root)]), { depth: .1, bevelEnabled: true, bevelThickness: .03, bevelSize: .04, bevelSegments: 1 });
+  const ff = flap(1.3, 2.6, 1.0), af = flap(2.2, 4.0, 2.0);
+  const chine = new THREE.BoxGeometry(.22, .06, L + 3);
+  for (const s of [-1, 1]) {
+    part(g, chine, tiles, [s * (R + .06), -.05, -1.4]);                                                // chines along the tile line
+    part(g, ff, tiles, [s * (R * .97), -.12, -L / 2 - 2.6], [Math.PI / 2, 0, -s * .25], [s, 1, 1]);    // forward flaps, leeward-swept
+    part(g, af, tiles, [s * (R * .97), -.12, L / 2 - 4.4], [Math.PI / 2, 0, 0], [s, 1, 1]);            // aft flaps
+  }
+  part(g, new THREE.CircleGeometry(R, 56), steel, [0, 0, L / 2 + .01]);
+  for (let k = 0; k < 3; k++) { const a = Math.PI / 2 + k * Math.PI * 2 / 3; engine(g, Math.cos(a) * .32, Math.sin(a) * .32, L / 2, .22, new THREE.Color(.65, .78, 1)); }       // sea-level
+  for (let k = 0; k < 3; k++) { const a = -Math.PI / 2 + k * Math.PI * 2 / 3; engine(g, Math.cos(a) * .85, Math.sin(a) * .85, L / 2, .38, new THREE.Color(.65, .78, 1)); }     // vacuum
   return g;
 }
 function buildRocket() { // retro rocket: checkered hull, three swept fins on landing pads
@@ -1120,11 +1175,11 @@ function buildRocket() { // retro rocket: checkered hull, three swept fins on la
   engine(g, 0, 0, 8.05, .65, new THREE.Color(1, .6, .3));
   return g;
 }
-const SHIPS = [['spaceplane', buildSpaceplane], ['starship', buildStarship], ['rocket', buildRocket]];
-let shipIdx = Math.min(SHIPS.length - 1, store.get('dh3d.shiptype', 0) | 0), shipMesh = null;
+const SHIPS = [['lifting body', buildLiftingBody], ['shuttle', buildShuttle], ['capsule', buildCapsule], ['starship', buildStarship], ['rocket', buildRocket]];
+let shipIdx = Math.min(SHIPS.length - 1, store.get('dh3d.ship2', 0) | 0), shipMesh = null;
 function setShip(i) {
   if (shipMesh) { scene.remove(shipMesh); shipMesh.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material && !o.material.userData.shared) { o.material.map?.dispose(); o.material.dispose(); } }); }
-  shipIdx = i; store.set('dh3d.shiptype', i);
+  shipIdx = i; store.set('dh3d.ship2', i);
   shipMesh = SHIPS[i][1]();
   const fill = new THREE.PointLight(0xfff0dc, .9, 0, 0); fill.position.set(-8, 10, 20); shipMesh.add(fill); // soft key light so the hull reads against black space
   shipMesh.visible = false;
