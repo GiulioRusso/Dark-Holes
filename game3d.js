@@ -1049,36 +1049,97 @@ function panelTex(base, line, tilesX, tilesY, seed) { // procedural hull panelli
 }
 const newShip = () => { const g = new THREE.Group(); g.userData = { flames: [], throats: [], tips: [] }; return g; };
 
-function buildSpaceplane() { // lifting-body spaceplane: ceramic upper skin, black tiles below, twin fins, two engines
+// "Aurora" spaceplane: one continuous blended wing-body surface. Each station along the length has a cross-section
+// that flows from the fuselage crown into a thin wing, so body and wing are a single skin (no bolted-on parts).
+// Ship axes: nose toward -Z, up +Y, tail at +Z.
+function buildSpaceplane() {
   const g = newShip();
-  const skin = new THREE.MeshStandardMaterial({ map: panelTex('#dcdad4', 'rgba(60,60,60,.35)', 16, 8, 3), metalness: .15, roughness: .55, envMapIntensity: 1.2, side: THREE.DoubleSide });
-  const tiles = new THREE.MeshStandardMaterial({ map: panelTex('#1d1e21', 'rgba(0,0,0,.6)', 32, 16, 4), metalness: .05, roughness: .85, side: THREE.DoubleSide });
-  const glass = new THREE.MeshStandardMaterial({ color: 0x08090b, metalness: .9, roughness: .06, envMapIntensity: 3 });
-  const prof = Array.from({ length: 48 }, (_, i) => { // tail (y=0) -> nose (y=17): straight mid-body, ogive nose
-    const y = i / 47 * 17, t = y / 17;
-    const body = .95 + .45 * sstep(0, .3, t), nose = t > .55 ? Math.sqrt(Math.max(0, 1 - ((t - .55) / .45) ** 2)) : 1;
-    return new THREE.Vector2(Math.max(.001, body * nose), y);
-  });
-  part(g, new THREE.LatheGeometry(prof, 56), skin, [0, 0, 8.5], [X90, 0, 0], [1, 1, .62]);
-  part(g, new THREE.LatheGeometry(prof.map(v => new THREE.Vector2(v.x * 1.01, v.y)), 56, Math.PI / 2, Math.PI), tiles, [0, 0, 8.5], [X90, 0, 0], [1, 1, .62]);
-  // cockpit windows: a thin dark band, not a bubble
-  part(g, new THREE.SphereGeometry(1, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2), glass, [0, .5, -4.2], [-.12, 0, 0], [.75, .32, 1.3]);
-  // cranked delta wing with a thin profile
-  const wing = new THREE.ExtrudeGeometry(new THREE.Shape([new THREE.Vector2(0, -3.5), new THREE.Vector2(1.6, 0), new THREE.Vector2(5.8, 5.2), new THREE.Vector2(5.9, 6.6), new THREE.Vector2(0, 7)]),
-    { depth: .12, bevelEnabled: true, bevelThickness: .04, bevelSize: .06, bevelSegments: 2 });
-  const fin = new THREE.ExtrudeGeometry(new THREE.Shape([new THREE.Vector2(0, 0), new THREE.Vector2(3, 0), new THREE.Vector2(3.3, 2.4), new THREE.Vector2(2.3, 2.4)]), { depth: .1, bevelEnabled: true, bevelThickness: .03, bevelSize: .04, bevelSegments: 1 });
-  for (const s of [-1, 1]) {
-    part(g, wing, skin, [s * .85, -.28, 1.4], [Math.PI / 2, 0, s * .04], [s, 1, 1]);
-    const cant = new THREE.Group(); cant.position.set(s * 1.0, .35, 5.6); cant.rotation.z = -s * .26; g.add(cant);
-    part(cant, fin, skin, [0, 0, 0], [0, -Math.PI / 2, 0]);
-    const t = sprite(new THREE.Color(s < 0 ? 1 : .6, s < 0 ? .35 : 1, s < 0 ? .3 : .6), .8, .9, 2); t.position.set(s * 6.8, -.25, 8.1); g.add(t); g.userData.tips.push(t); // nav lights
+  const L = 18, Z0 = -9, S = 7.2;            // length, nose z, half-span
+  const U_LE = .34, U_TIP = .88;             // leading edge leaves the fuselage / wingtip station
+  const ramp = (u, a) => u < a ? Math.sin(u / a * Math.PI / 2) : 1;
+  const fusW = u => 1.25 * Math.sqrt(Math.max(0, 1 - (1 - Math.min(1, u / .4)) ** 2)) * (u > .85 ? 1 - (u - .85) * .6 : 1);
+  const fusUp = u => 1.15 * ramp(u, .42) ** .8 * (u > .8 ? 1 - (u - .8) * 1.2 : 1);
+  const fusLo = u => .62 * ramp(u, .4) ** .9;
+  const half = u => { // planform: concave leading edge into the delta, slightly forward-swept trailing edge
+    const f = fusW(u);
+    if (u < U_LE) return f;
+    if (u < U_TIP) { const t = (u - U_LE) / (U_TIP - U_LE); return f + (S - f) * (t * .55 + t * t * .45); } // gently curved, mostly straight sweep
+    return S + (f - S) * (u - U_TIP) / (1 - U_TIP);
+  };
+  // height of the skin at lateral position x (|x| <= w) for station u; sign +1 top, -1 bottom
+  const surfY = (x, u, sign) => {
+    const w = Math.max(half(u), 1e-4), e = Math.sqrt(Math.max(0, 1 - (x / w) ** 2)), b = Math.exp(-((x / Math.max(fusW(u), 1e-4)) ** 4));
+    const wingT = sign > 0 ? .22 : .1, fus = sign > 0 ? fusUp(u) : fusLo(u);
+    return sign * e * (wingT + (fus - wingT) * b);
+  };
+  const NZ = 90, M = 40, white = new THREE.Color(.93, .92, .89), dark = new THREE.Color(.024, .026, .03); // vertex colours are linear: this is ~#2a2b2e
+  const skin = sign => {
+    const pos = [], uv = [], col = [], idx = [], c = new THREE.Color();
+    for (let i = 0; i <= NZ; i++) {
+      const u = i / NZ, w = half(u), z = Z0 + u * L;
+      for (let j = -M; j <= M; j++) {
+        const x = w * Math.sin(Math.PI / 2 * j / M); // denser near the edges where the curvature is
+        pos.push(x, surfY(x, u, sign), z);
+        uv.push(x / (2 * S) + .5, u);
+        const band = 1 - sstep(.55, .95, w - Math.abs(x)); // anthracite rim along leading edge and nose chines
+        c.copy(white).lerp(dark, sign > 0 && u < U_TIP + .02 ? band : 0);
+        col.push(c.r, c.g, c.b);
+      }
+    }
+    const row = 2 * M + 1;
+    for (let i = 0; i < NZ; i++) for (let j = 0; j < 2 * M; j++) {
+      const a = i * row + j, b = a + 1, c2 = a + row, d = c2 + 1;
+      if (sign > 0) idx.push(a, c2, b, b, c2, d); else idx.push(a, b, c2, b, d, c2);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    geo.setIndex(idx); geo.computeVertexNormals();
+    return geo;
+  };
+  const topMat = new THREE.MeshStandardMaterial({ map: panelTex('#f2f0ea', 'rgba(70,70,70,.1)', 34, 30, 3), vertexColors: true, metalness: .1, roughness: .5, envMapIntensity: 1.1 });
+  const lowMat = new THREE.MeshStandardMaterial({ map: panelTex('#1d1e21', 'rgba(0,0,0,.55)', 30, 22, 4), metalness: .1, roughness: .8, envMapIntensity: .8 });
+  const anth = new THREE.MeshStandardMaterial({ color: 0x232427, metalness: .35, roughness: .55, envMapIntensity: 1.2 });
+  g.add(new THREE.Mesh(skin(1), topMat), new THREE.Mesh(skin(-1), lowMat));
+  { // aft bulkhead: close the last cross-section
+    const u = 1, w = half(u), z = Z0 + L - .001, pts = [];
+    for (let j = -M; j <= M; j++) { const x = w * Math.sin(Math.PI / 2 * j / M); pts.push(new THREE.Vector2(x, surfY(x, u, 1))); }
+    for (let j = M; j >= -M; j--) { const x = w * Math.sin(Math.PI / 2 * j / M); pts.push(new THREE.Vector2(x, surfY(x, u, -1))); }
+    part(g, new THREE.ShapeGeometry(new THREE.Shape(pts)), anth, [0, 0, z]);
   }
-  part(g, new THREE.BoxGeometry(2.2, .14, 1.1), tiles, [0, -.45, 8.9]); // body flap
-  engine(g, -.5, 0, 8.6, .48, new THREE.Color(1, .78, .5));
-  engine(g, .5, 0, 8.6, .48, new THREE.Color(1, .78, .5));
+  // cockpit: long glossy black canopy set into the crown
+  const glass = new THREE.MeshStandardMaterial({ color: 0x050608, metalness: .9, roughness: .05, envMapIntensity: 3.2 });
+  part(g, new THREE.SphereGeometry(1, 40, 20, 0, Math.PI * 2, 0, Math.PI / 2), glass, [0, fusUp(.27) - .32, Z0 + .27 * L], [0, 0, 0], [.55, .46, 2.5]);
+  // twin canted fins on the wing root, rooted slightly into the skin
+  const finShape = new THREE.Shape([new THREE.Vector2(0, 0), new THREE.Vector2(3.4, 0), new THREE.Vector2(3.35, 2.3), new THREE.Vector2(2.0, 2.3)]);
+  const finGeo = new THREE.ExtrudeGeometry(finShape, { depth: .14, bevelEnabled: true, bevelThickness: .05, bevelSize: .06, bevelSegments: 3, curveSegments: 4 });
+  finGeo.translate(0, 0, -.07);
+  const finMat = new THREE.MeshStandardMaterial({ map: panelTex('#eeece6', 'rgba(70,70,70,.1)', 8, 6, 5), metalness: .1, roughness: .5, envMapIntensity: 1.1 });
+  for (const s of [-1, 1]) {
+    const x = s * 1.75, zr = 5.0, cant = new THREE.Group();
+    cant.position.set(x, surfY(x, (zr + 1.7 - Z0) / L, 1) - .06, zr); cant.rotation.z = -s * .33; g.add(cant); // ~19° outward
+    part(cant, finGeo, finMat, [0, 0, 0], [0, -Math.PI / 2, 0]);
+  }
+  // engines: nacelles blended under the tail, short round nozzles with a warm recessed glow
+  for (const s of [-1, 1]) {
+    const x = s * .72;
+    part(g, new THREE.CylinderGeometry(.62, .66, 4.8, 32, 1), anth, [x, -.08, 7.5], [X90, 0, 0]);
+    part(g, new THREE.TorusGeometry(.58, .07, 10, 32), new THREE.MeshStandardMaterial({ color: 0x3a3b3f, metalness: .8, roughness: .3 }), [x, -.08, 9.9]);
+    const throat = new THREE.MeshBasicMaterial({ color: 0x331a08, side: THREE.DoubleSide });
+    part(g, new THREE.CircleGeometry(.5, 32), throat, [x, -.08, 9.75]);
+    part(g, new THREE.CylinderGeometry(.52, .52, .3, 32, 1, true), new THREE.MeshStandardMaterial({ color: 0x15161a, side: THREE.DoubleSide }), [x, -.08, 9.75], [X90, 0, 0]);
+    const f = sprite(new THREE.Color(1, .6, .28), 1, 0, 1.6); f.position.set(x, -.08, 10.6); g.add(f);
+    g.userData.flames.push({ f, r: .5 }); g.userData.throats.push(throat);
+  }
+  // cyan wingtip lights and small orange accent strips under the trailing edge
+  const tipZ = Z0 + U_TIP * L;
+  for (const s of [-1, 1]) {
+    const t = sprite(new THREE.Color(.45, .9, 1), .7, .9, 2); t.position.set(s * (S - .05), .02, tipZ); g.add(t); g.userData.tips.push(t);
+    part(g, new THREE.BoxGeometry(1.4, .03, .07), new THREE.MeshBasicMaterial({ color: new THREE.Color(1, .55, .2) }), [s * 4.6, -.05, Z0 + .925 * L], [0, s * .2, 0]);
+  }
   return g;
 }
-
 const shipMesh = buildSpaceplane();
 const fill = new THREE.PointLight(0xfff0dc, .9, 0, 0); fill.position.set(-8, 10, 20); shipMesh.add(fill); // soft key light so the hull reads against black space
 shipMesh.visible = false;
