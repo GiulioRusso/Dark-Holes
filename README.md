@@ -29,7 +29,7 @@ Star systems (yellow, orange and red dwarfs, white and blue stars, red giants, b
 |---|---|
 | `T` | lock / unlock the object in your sights |
 | `G` | autopilot to the target |
-| `O` | orbit what you're looking at (flies there first if needed); again to release |
+| `O` | orbit the locked target, or what you're looking at (planets, stars, black holes, wormholes…); flies there first if needed; again to release |
 | `X` | cancel autopilot, orbit and target lock |
 | `B` | back to the home system |
 

@@ -629,9 +629,13 @@ const ship = { transit: null, autoOrbit: false, orbitR: 0, pos: new V3(), vel: n
 const keys = {};
 let paused = false, mdx = 0, mdy = 0, mapRange = 1, chase = store.get('dh3d.chase', false), muted = false, started = false, lastHeat = -9;
 const RANGES = [15000, 60000, 240000];
+// safe, useful orbit radii (in body radii): black holes stay clear of the accretion disk (outer edge 10 rs)
+const ORBIT_K = { bh: [12, 30], wormhole: [2.5, 8] }, orbitK = b => ORBIT_K[b.kind] || [2, 7];
+const orbitable = b => !!b && (isSolid(b) || b.kind === 'bh' || b.kind === 'wormhole') && b.kind !== 'comet';
 function engageOrbit(b) {
-  ship.orbit = b; ship.auto = ship.autoOrbit = false;
-  ship.orbitR = THREE.MathUtils.clamp(ship.pos.distanceTo(b.pos), b.R * 2, b.R * 7); // a safe, useful altitude
+  const [lo, hi] = orbitK(b);
+  ship.orbit = b; ship.target = b; ship.auto = ship.autoOrbit = false;
+  ship.orbitR = THREE.MathUtils.clamp(ship.pos.distanceTo(b.pos), b.R * lo, b.R * hi);
 }
 const lookQ = (from, to, up = new V3(0, 1, 0)) => new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(from, to, up));
 
@@ -713,14 +717,15 @@ addEventListener('keydown', e => {
     case 'KeyP': paused = !paused; $('paused').classList.toggle('hidden', !paused); break;
     case 'KeyN': setShip((shipIdx + 1) % SHIPS.length); chase = true; store.set('dh3d.chase', true); camQ.copy(ship.q); break;
     case 'KeyO': {
-      // what you're looking at first, then the locked target, then whatever is nearest
-      const orbitable = b => b && isSolid(b) && b.kind !== 'comet';
+      // locked target first, then what's in your sights, then the nearest object; never a different one silently
       const current = ship.orbit || (ship.autoOrbit && ship.target);
-      let t = [ship.cand, ship.target].find(orbitable) || ship.orbitCand;
+      const picked = ship.target || ship.cand;
+      if (picked && !orbitable(picked) && !current) break; // e.g. a nebula: nothing to orbit
+      let t = orbitable(picked) ? picked : ship.orbitCand;
       if (current && (!t || t === current)) { ship.orbit = null; ship.autoOrbit = ship.auto = false; break; } // O again on the same object = release
-      if (!t) { let best = Infinity; for (const b of bodies) if (isSolid(b) && b.kind !== 'comet') { const d = ship.pos.distanceTo(b.pos) - b.R; if (d < best) { best = d; t = b; } } }
+      if (!t) { let best = Infinity; for (const b of bodies) if (orbitable(b)) { const d = ship.pos.distanceTo(b.pos) - b.R; if (d < best) { best = d; t = b; } } }
       if (!t) break;
-      if (ship.pos.distanceTo(t.pos) < t.R * 8) engageOrbit(t); else { ship.orbit = null; ship.target = t; ship.auto = ship.autoOrbit = true; }
+      if (ship.pos.distanceTo(t.pos) < t.R * orbitK(t)[1] * 1.1) engageOrbit(t); else { ship.orbit = null; ship.target = t; ship.auto = ship.autoOrbit = true; }
       break;
     }
     case 'KeyM': mapRange = (mapRange + 1) % RANGES.length; break;
@@ -789,8 +794,8 @@ function updateShip(dt) {
   // emergency escape: Shift+Space burns hard straight away from whatever pulls hardest, ignoring mass lock
   const escape = ctl && k('Space') && warp;
   if (escape) { warp = 0; ship.auto = ship.autoOrbit = false; ship.orbit = null; }
-  if (ship.orbit && (th || st || vt || ship.auto || ship.pos.distanceTo(ship.orbit.pos) > ship.orbit.R * 12)) ship.orbit = null;
-  if (ship.orbit) ride = ship.orbit.kind === 'star' ? null : ship.orbit;
+  if (ship.orbit && (th || st || vt || ship.auto || ship.pos.distanceTo(ship.orbit.pos) > ship.orbitR * 1.8)) ship.orbit = null;
+  if (ship.orbit) ride = ship.orbit.orbit ? ship.orbit : null; // co-move only with bodies that themselves move
   // proximity / gravity alarm (level 1 = caution, 2 = danger)
   gAcc = acc.length();
   alarm = bhK < 15 ? { lvl: bhK < 6 ? 2 : 1, txt: `EVENT HORIZON ${bhB.name} :: ${bhK.toFixed(1)} rs · Shift+Space escape` }
@@ -800,7 +805,7 @@ function updateShip(dt) {
 
   // autopilot
   if (ship.auto && ship.target) {
-    const t = ship.target, d = ship.pos.distanceTo(t.pos), stop = t.kind === 'nebula' ? t.R : t.kind === 'bh' ? t.R * 14 : t.R * 3.5 + 400;
+    const t = ship.target, d = ship.pos.distanceTo(t.pos), stop = t.kind === 'nebula' ? t.R : t.kind === 'bh' ? t.R * 16 : t.kind === 'wormhole' ? t.R * 4 : t.R * 3.5 + 400;
     ship.q.slerp(tQ2.copy(lookQ(ship.pos, t.pos, up)), 1 - Math.exp(-dt * 2.2));
     const ang = fwd.angleTo(tD.subVectors(t.pos, ship.pos));
     if (d < stop) { ship.vel.multiplyScalar(Math.exp(-dt * 3)); if (ship.autoOrbit) engageOrbit(t); else if (ship.vel.length() < 60) ship.auto = false; }
