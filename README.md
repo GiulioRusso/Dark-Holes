@@ -1,6 +1,6 @@
 # Dark Holes
 
-An endless, procedurally generated universe to explore from the cockpit of a small spaceplane. No goal, no game over: fly between star systems, orbit strange worlds, chase comets, dive past pulsars and fall into black holes.
+An endless, procedurally generated universe to explore from the cockpit of your ship (spaceplane, Starship-style or retro rocket). No goal, no game over: fly between star systems, orbit strange worlds, chase comets, dive past pulsars and fall into black holes.
 
 **Play in the browser:** https://giuliorusso.github.io/Dark-Holes/
 
@@ -11,7 +11,7 @@ An endless, procedurally generated universe to explore from the cockpit of a sma
 
 ## What's out there
 
-Star systems (yellow, orange and red dwarfs, white and blue stars, red giants, brown dwarfs, binaries) with rocky, terran, gas, lava and ice worlds, moons, rings, asteroid belts and comets — plus black holes with gravitational lensing, pulsars, wormholes, nebulae and planetary nebulae around white dwarfs. Everything orbits in real time, gravity is Newtonian, and time runs slower near black holes and at high speed.
+Star systems (yellow, orange and red dwarfs, white and blue stars, red giants, brown dwarfs, binaries, sunspots) with rocky cratered worlds, terran worlds with clouds and city lights, banded gas giants with storms and rings, lava and ice worlds, moons, asteroid belts and comets with ion and dust tails — plus black holes with gravitational lensing and a photon ring, pulsars sweeping their beams, wormholes, nebulae and planetary nebulae around white dwarfs. Everything orbits in real time, gravity is Newtonian, and time runs slower near black holes and at high speed.
 
 ## Controls
 
@@ -23,26 +23,27 @@ Star systems (yellow, orange and red dwarfs, white and blue stars, red giants, b
 | `A` / `D` · `R` / `F` | slide sideways · up / down |
 | `Space` | brake |
 | `Shift` (with `W`) | warp drive |
+| `Shift` + `Space` | emergency escape from black holes, pulsars and strong gravity |
 
 | Navigation | |
 |---|---|
 | `T` | lock the object in your sights |
 | `G` | autopilot to the target |
-| `O` | orbit the nearest object (flies there first if needed) |
-| ◇ | on-screen marker: point here and thrust to reach orbit |
+| `O` | orbit the nearest object (flies there first if needed); again to release |
 | `B` | back to the home system |
 
 | View & system | |
 |---|---|
 | `C` | cockpit / outside camera |
+| `N` | change ship (also selectable on the start screen) |
 | `M` | radar range |
 | `P` · `V` · `H` | pause · sound · help |
 
 ## HUD
 
-- **Bottom left:** speed (negative when flying backwards), β (fraction of light speed), time dilation, number of worlds visited, alarms, list of visited worlds.
-- **Radar (bottom right):** 3D view of what's around you, your flight path, and the orbit you could hold around the nearest object with directions on how to get there.
-- **Proximity / gravity alarm** when you get too close to a surface, a black hole or a strong gravity well.
+- **Bottom left:** speed (negative when flying backwards), β (fraction of light speed), time dilation, altitude above the nearest body, number of charted objects, alarms, and a scrollable list of everything you've charted.
+- **Radar (bottom right):** 3D view of what's around you, your flight path, and your orbit while holding one.
+- **Proximity / gravity alarm** when you get too close to a surface, a black hole or a strong gravity well (`Shift` + `Space` gets you out).
 
 Discoveries and your position are saved in the browser.
 
