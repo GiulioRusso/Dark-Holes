@@ -72,6 +72,6 @@ docs/        screenshots
 
 ## Credits
 
-Space Shuttle orbiter model: [NASA 3D Resources](https://github.com/nasa/NASA-3D-Resources) ("Space Shuttle (D)"), with the NASA insignia, flag and lettering removed from its textures. This project is not affiliated with or endorsed by NASA.
+Space Shuttle orbiter model: [NASA 3D Resources](https://github.com/nasa/NASA-3D-Resources) ("Space Shuttle (D)"), with the NASA insignia, flag and lettering removed from its textures. This project is not affiliated with or endorsed by NASA. The other ships are procedural models built to the real vehicles' published proportions (Starship 52.1 × 9 m, Orion crew module 5.02 m with a 19 m solar-array span, Dream Chaser 9.1 m long with an 8.2 m span); they carry no logos or markings.
 
 The original 2D version lives on the [`classic-2d`](https://github.com/GiulioRusso/Dark-Holes/tree/classic-2d) branch.
