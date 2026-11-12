@@ -653,7 +653,7 @@ function spawnHome() {
 }
 // Interstellar-style transit: a tunnel ride hides the teleport and the streaming-in of the new region
 function startTransit(kind, arrive) {
-  ship.transit = { t: 0, dur: 4, kind, arrive, done: false };
+  ship.transit = { t: 0, dur: kind === 'bh' ? 3.6 : 4, kind, arrive, done: false };
   ship.vel.set(0, 0, 0); ship.auto = ship.autoOrbit = false; ship.orbit = null; ship.target = null; alarm = null;
 }
 function updateTransit(dt) {
@@ -661,19 +661,43 @@ function updateTransit(dt) {
   const u = tr.t / tr.dur;
   if (!tr.done && u > .4) { tr.done = true; tr.arrive(); }
   if (tr.done) updateSectors(6);
-  lens.uniforms.uTunnel.value = sstep(0, .18, u) * (1 - sstep(.82, 1, u));
+  if (tr.kind === 'bh') lens.uniforms.uBlack.value = u < .45 ? sstep(0, .3, u) : 1 - sstep(.5, 1, u); // darkness closes in, then dissolves away
+  else lens.uniforms.uTunnel.value = sstep(0, .18, u) * (1 - sstep(.82, 1, u));
   lens.uniforms.uTT.value = tr.t;
   lens.uniforms.uTC.value.set(...(tr.kind === 'bh' ? [1, .45, .2] : tr.kind === 'home' ? [.7, .8, 1] : [1, .85, .6]));
-  if (u >= 1) { ship.transit = null; lens.uniforms.uTunnel.value = 0; flash(.5, '#fff'); }
+  if (u >= 1) { ship.transit = null; lens.uniforms.uTunnel.value = lens.uniforms.uBlack.value = 0; if (tr.kind !== 'bh') flash(.5, '#fff'); }
 }
-function jump(kind) {
+function farSystem(rand) { // a star system 15-60 sectors away
   const c = sectorOf(ship.pos);
-  let dest = null, n = 0;
+  let dest = null;
   for (let i = 0; i < 500 && !dest; i++) {
-    n = ri(Math.random, 15, 60);
-    const d = new V3(Math.random() - .5, (Math.random() - .5) * .2, Math.random() - .5).normalize().multiplyScalar(n);
+    const n = ri(rand, 15, 60);
+    const d = new V3(rand() - .5, (rand() - .5) * .08, rand() - .5).normalize().multiplyScalar(n); // stay in the galactic disk
     dest = sectorSystem(c.x + Math.round(d.x), c.y + Math.round(d.y), c.z + Math.round(d.z));
   }
+  return dest;
+}
+// wormhole: no cut. You keep speed and heading and fly straight out of the twin mouth on the other side.
+const exitMouth = new THREE.Mesh(GEO.sphere, smat(SPHERE_VS, WH_FS, { uFade: { value: 0 }, uSky: { value: skyTex } }));
+exitMouth.visible = false; scene.add(exitMouth);
+function traverse(wh) {
+  const dest = farSystem(rng(hash(...wh.id.split(':')[0].split(',').map(Number)) ^ 0x77)); // each wormhole always leads to the same place
+  const fwd = new V3(0, 0, -1).applyQuaternion(ship.q);
+  const exit = dest.clone().addScaledVector(fwd, -45000); // come out heading toward the system
+  ship.pos.copy(exit).addScaledVector(fwd, wh.R * 1.05);
+  ship.auto = ship.autoOrbit = false; ship.orbit = null; ship.target = null; trail.length = 0; alarm = null;
+  updateSectors(27);
+  exitMouth.position.copy(exit); exitMouth.scale.setScalar(wh.R); exitMouth.visible = true; exitMouth.userData.t = 0;
+  lens.uniforms.uTunnel.value = 0; flashA = 0;
+}
+function updateExitMouth(dt) { // the mouth you came out of stays behind you for a while, then fades
+  if (!exitMouth.visible) return;
+  const t = exitMouth.userData.t += dt;
+  exitMouth.material.uniforms.uFade.value = 1 - sstep(8, 14, t);
+  if (t > 14) exitMouth.visible = false;
+}
+function jump(kind) {
+  const dest = farSystem(Math.random);
   startTransit(kind, () => spawnAt(dest, 60000));
 }
 
@@ -683,18 +707,20 @@ addEventListener('keydown', e => {
   keys[e.code] = true;
   if (!started) { if (e.code === 'Enter') launch(); return; }
   switch (e.code) {
-    case 'KeyT': ship.target = ship.cand && ship.cand !== ship.target ? ship.cand : null; ship.auto = ship.autoOrbit = false; break;
+    case 'KeyT': ship.target = ship.target ? null : ship.cand; ship.auto = ship.autoOrbit = false; break; // plain toggle
     case 'KeyX': ship.target = null; ship.auto = ship.autoOrbit = false; ship.orbit = null; break;
     case 'KeyG': { const t = ship.target || ship.cand; if (t) { ship.target = t; ship.auto = !ship.auto; } break; }
     case 'KeyP': paused = !paused; $('paused').classList.toggle('hidden', !paused); break;
     case 'KeyN': setShip((shipIdx + 1) % SHIPS.length); chase = true; store.set('dh3d.chase', true); camQ.copy(ship.q); break;
     case 'KeyO': {
-      if (ship.orbit || ship.autoOrbit) { ship.orbit = null; ship.autoOrbit = ship.auto = false; break; }
       // what you're looking at first, then the locked target, then whatever is nearest
-      let t = [ship.cand, ship.target].find(b => b && isSolid(b) && b.kind !== 'comet') || ship.orbitCand;
+      const orbitable = b => b && isSolid(b) && b.kind !== 'comet';
+      const current = ship.orbit || (ship.autoOrbit && ship.target);
+      let t = [ship.cand, ship.target].find(orbitable) || ship.orbitCand;
+      if (current && (!t || t === current)) { ship.orbit = null; ship.autoOrbit = ship.auto = false; break; } // O again on the same object = release
       if (!t) { let best = Infinity; for (const b of bodies) if (isSolid(b) && b.kind !== 'comet') { const d = ship.pos.distanceTo(b.pos) - b.R; if (d < best) { best = d; t = b; } } }
       if (!t) break;
-      if (ship.pos.distanceTo(t.pos) < t.R * 8) engageOrbit(t); else { ship.target = t; ship.auto = ship.autoOrbit = true; }
+      if (ship.pos.distanceTo(t.pos) < t.R * 8) engageOrbit(t); else { ship.orbit = null; ship.target = t; ship.auto = ship.autoOrbit = true; }
       break;
     }
     case 'KeyM': mapRange = (mapRange + 1) % RANGES.length; break;
@@ -727,7 +753,7 @@ function updateShip(dt) {
   let th = k('KeyW') - k('KeyS'), st = k('KeyD') - k('KeyA'), vt = k('KeyR') - k('KeyF');
   let warp = k('ShiftLeft') || k('ShiftRight');
   if (!ctl) th = st = vt = warp = 0;
-  const manual = pitch || yaw || roll || th || st || vt || Math.abs(mdx) + Math.abs(mdy) > 2;
+  const manual = th || st || vt; // looking around with mouse/arrows never cancels autopilot
   if (manual && ship.auto) ship.auto = ship.autoOrbit = false;
 
   ship.w.lerp(tA.set(pitch * 1.1, yaw * 1.1, roll * 1.6), 1 - Math.exp(-dt * 5));
@@ -751,7 +777,7 @@ function updateShip(dt) {
     if (b.kind === 'bh' && d < b.R * 60) dilation *= Math.sqrt(Math.max(0, 1 - b.R / d));
     if (b.kind === 'star' && d < nsD) { nsD = d; nearStar = b; }
     if (!b.disc && d < b.discR) discover(b);
-    if (isSolid(b) && d / b.R < ocK) { ocK = d / b.R; oc = b; }
+    if (isSolid(b) && b.kind !== 'comet' && d / b.R < ocK) { ocK = d / b.R; oc = b; }
     if (isSolid(b) && (d - b.R) / b.R < proxS) { proxS = (d - b.R) / b.R; proxB = b; }
     if (b.kind === 'bh' && d / b.R < bhK) { bhK = d / b.R; bhB = b; }
     if (d > b.R && d < 240000) {
@@ -810,7 +836,7 @@ function updateShip(dt) {
       if (b.kind === 'star' && simT - lastHeat > 3) { lastHeat = simT; flash(.6, '#ff8a3c'); }
     }
     if (b.kind === 'bh' && d < b.R) return jump('bh');
-    if (b.kind === 'wormhole' && d < b.R * .9) return jump('wormhole');
+    if (b.kind === 'wormhole' && d < b.R * .9) return traverse(b);
   }
   rate = Math.sqrt(Math.max(0, 1 - (ship.vel.lengthSq() / (C_LIGHT * C_LIGHT)))) * dilation;
   ship.tau += dt * rate;
@@ -862,9 +888,9 @@ function updateDust() {
 
 // ---------------------------------------------------------------- post: lensing + bloom
 const LensShader = {
-  uniforms: { tDiffuse: { value: null }, uC: { value: new THREE.Vector2(.5, .5) }, uR: { value: 0 }, uAspect: { value: 1 }, uOn: { value: 0 }, uWarp: { value: 0 }, uT: { value: 0 }, uTunnel: { value: 0 }, uTT: { value: 0 }, uTC: { value: new THREE.Vector3(1, .85, .6) } },
+  uniforms: { tDiffuse: { value: null }, uC: { value: new THREE.Vector2(.5, .5) }, uR: { value: 0 }, uAspect: { value: 1 }, uOn: { value: 0 }, uWarp: { value: 0 }, uT: { value: 0 }, uTunnel: { value: 0 }, uBlack: { value: 0 }, uTT: { value: 0 }, uTC: { value: new THREE.Vector3(1, .85, .6) } },
   vertexShader: 'varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }',
-  fragmentShader: NOISE + `uniform sampler2D tDiffuse; uniform vec2 uC; uniform vec3 uTC; uniform float uR,uAspect,uOn,uWarp,uT,uTunnel,uTT; varying vec2 vUv;
+  fragmentShader: NOISE + `uniform sampler2D tDiffuse; uniform vec2 uC; uniform vec3 uTC; uniform float uR,uAspect,uOn,uWarp,uT,uTunnel,uBlack,uTT; varying vec2 vUv;
   void main(){
     vec2 uv=vUv; float r=1.;
     if(uOn>.5){
@@ -886,6 +912,12 @@ const LensShader = {
       tc+=mix(uTC,vec3(1.),.6)*pow(smoothstep(.22,0.,r),2.)*(.4+uTT*.35);
       vec3 bent=texture2D(tDiffuse,.5+(vUv-.5)*(1.-uTunnel*.6*r)).rgb; // scene pulled into the throat
       col=mix(col,bent*.12+tc,uTunnel);
+    }
+    if(uBlack>0.){ // black-hole plunge: darkness eats the frame in ragged patches, then dissolves the same way
+      float n=fbm(vec3((vUv-.5)*vec2(uAspect,1.)*2.5,uTT*.15))*.5+.5;
+      n=mix(n,1.-length(vUv-.5)*1.2,.35); // edges go first
+      float m=smoothstep(n-.012,n+.012,uBlack*1.15);
+      col=col*(1.-m)+vec3(1.,.55,.25)*m*(1.-m)*.5; // a thin ember line along the dissolve front
     }
     float l=dot(col,vec3(.2126,.7152,.0722));
     col=mix(vec3(l),col,.7)*vec3(1.05,1.,.92); // filmic: desaturated, warm
@@ -1161,8 +1193,8 @@ function updateHUD(dt) {
     const sz = edge ? 16 : Math.min(400, Math.max(24, t.R / d / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * innerHeight * 1.15));
     bracket.style.width = bracket.style.height = sz + 'px';
     bracket.style.transform = `translate(${sx - sz / 2}px, ${sy - sz / 2}px)`;
-    bracket.classList.toggle('locked', t === ship.target);
-    if (hudTick % 6 === 0) blbl.innerHTML = `<b>${t.name}</b><br>${t.label.toLowerCase()}${t.disc ? '' : ' [uncharted]'}<br>${fmtD(Math.max(0, ship.pos.distanceTo(t.pos) - (isSolid(t) ? t.R : 0)))}${ship.auto && t === ship.target ? '<br>autopilot' : ''}`;
+    bracket.classList.toggle('locked', t === ship.target); bracket.classList.toggle('cand', t !== ship.target);
+    if (hudTick % 6 === 0) blbl.innerHTML = `<b>${t === ship.target ? '■ LOCKED  ' : ''}${t.name}</b><br>${t.label.toLowerCase()}${t.disc ? '' : ' [uncharted]'}<br>${fmtD(Math.max(0, ship.pos.distanceTo(t.pos) - (isSolid(t) ? t.R : 0)))}${ship.auto && t === ship.target ? '<br>autopilot' : ''}`;
   }
   if (hudTick++ % 6) return;
   const sp = ship.vel.length();
@@ -1306,6 +1338,7 @@ function step(dt) {
   updateSectors();
   updateOrbits();
   if (ship.transit) updateTransit(dt); else { updateShip(dt); recordTrail(dt); }
+  updateExitMouth(dt);
   for (const s of sectors.values()) for (const f of s.ticks) f(dt);
   if (nearStar) { sunLight.position.copy(nearStar.pos); sunLight.target.position.copy(ship.pos); }
   const warpF = sstep(CRUISE, MAX_WARP * .8, ship.vel.length());

@@ -11,7 +11,7 @@ An endless, procedurally generated universe to explore from the cockpit of your 
 
 ## What's out there
 
-Star systems (yellow, orange and red dwarfs, white and blue stars, red giants, brown dwarfs, binaries, sunspots) with rocky cratered worlds, terran worlds with clouds and city lights, banded gas giants with storms and rings, lava and ice worlds, moons, asteroid belts and comets with ion and dust tails — plus black holes with gravitational lensing and a photon ring, pulsars sweeping their beams, wormholes you can fly through (with an Interstellar-style transit), nebulae and planetary nebulae around white dwarfs. Everything orbits in real time, gravity is Newtonian, and time runs slower near black holes and at high speed.
+Star systems (yellow, orange and red dwarfs, white and blue stars, red giants, brown dwarfs, binaries, sunspots) with rocky cratered worlds, terran worlds with clouds and city lights, banded gas giants with storms and rings, lava and ice worlds, moons, asteroid belts and comets with ion and dust tails — plus black holes with gravitational lensing and a photon ring, pulsars sweeping their beams, wormholes you fly straight through to a distant region (each one always leads to the same place), nebulae and planetary nebulae around white dwarfs. Everything orbits in real time, gravity is Newtonian, and time runs slower near black holes and at high speed.
 
 ## Controls
 
@@ -27,7 +27,7 @@ Star systems (yellow, orange and red dwarfs, white and blue stars, red giants, b
 
 | Navigation | |
 |---|---|
-| `T` | lock the object in your sights |
+| `T` | lock / unlock the object in your sights |
 | `G` | autopilot to the target |
 | `O` | orbit what you're looking at (flies there first if needed); again to release |
 | `X` | cancel autopilot, orbit and target lock |
