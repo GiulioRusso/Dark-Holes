@@ -66,7 +66,12 @@ An internet connection is needed: three.js is loaded from a CDN.
 ```
 index.html   page, HUD and styles
 game3d.js    the whole game: universe generation, shaders, flight, radar, audio
+assets/      3D models
 docs/        screenshots
 ```
+
+## Credits
+
+Space Shuttle orbiter model: [NASA 3D Resources](https://github.com/nasa/NASA-3D-Resources) ("Space Shuttle (D)"), with the NASA insignia, flag and lettering removed from its textures. This project is not affiliated with or endorsed by NASA.
 
 The original 2D version lives on the [`classic-2d`](https://github.com/GiulioRusso/Dark-Holes/tree/classic-2d) branch.

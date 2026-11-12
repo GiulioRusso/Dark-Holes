@@ -5,6 +5,8 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 
 const V3 = THREE.Vector3;
 // 1 world unit = 10 km. Sectors are cubes; a sector holds at most one star system / black hole / wormhole.
@@ -1091,25 +1093,22 @@ function buildLiftingBody() { // Dream Chaser-style: blunt lifting body, flat bl
   engine(g, .6, -.05, 7.5, .26, new THREE.Color(1, .8, .55));
   return g;
 }
-function buildShuttle() { // orbiter: long fuselage, double-delta wing, tall fin, OMS pods, three main engines
-  const g = newShip(), skin = ceramic(7), tiles = tileMat(8);
-  const prof = Array.from({ length: 52 }, (_, i) => { const y = i / 51 * 18, t = y / 18; return new THREE.Vector2(Math.max(.001, 1.3 * (t > .78 ? Math.sqrt(Math.max(0, 1 - ((t - .78) / .22) ** 2)) : 1) * (t < .06 ? .92 + t * 1.3 : 1)), y); });
-  part(g, halfLathe(prof, true), skin, [0, 0, 9], [X90, 0, 0], [1, 1, .95]);
-  part(g, halfLathe(prof, false), tiles, [0, 0, 9], [X90, 0, 0], [1, 1, .95]);
-  part(g, new THREE.SphereGeometry(1, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2), glassMat(), [0, .78, -5.6], [-.3, 0, 0], [.85, .32, .9]);
-  const wingShape = new THREE.Shape([new THREE.Vector2(0, -6), new THREE.Vector2(1.2, -2.2), new THREE.Vector2(5.6, 5.2), new THREE.Vector2(5.8, 6.4), new THREE.Vector2(0, 6.9)]);
-  const wing = new THREE.ExtrudeGeometry(wingShape, { depth: .14, bevelEnabled: true, bevelThickness: .04, bevelSize: .05, bevelSegments: 1 });
-  const under = new THREE.ShapeGeometry(wingShape);
-  for (const s of [-1, 1]) {
-    part(g, wing, skin, [s * .95, -.55, 2.3], [Math.PI / 2, 0, 0], [s, 1, 1]);
-    part(g, under, tiles, [s * .95, -.75, 2.3], [Math.PI / 2, 0, 0], [s, 1, 1]); // black underside of the wing
-    part(g, new THREE.SphereGeometry(1, 20, 12), skin, [s * .85, .85, 7.6], [0, 0, 0], [.48, .42, 1.7]); // OMS pods
-  }
-  const fin = new THREE.ExtrudeGeometry(new THREE.Shape([new THREE.Vector2(0, 0), new THREE.Vector2(4.4, 0), new THREE.Vector2(4.6, 4.4), new THREE.Vector2(3.3, 4.4)]), { depth: .22, bevelEnabled: true, bevelThickness: .04, bevelSize: .05, bevelSegments: 1 });
-  part(g, fin, skin, [.11, 1.05, 4.4], [0, -Math.PI / 2, 0]);
-  part(g, new THREE.BoxGeometry(2.2, .14, 1.0), tiles, [0, -.9, 9.3]); // body flap
-  navLights(g, 6.75, -.5, 8.9);
-  [[0, .55], [-.6, -.3], [.6, -.3]].forEach(([x, y]) => engine(g, x, y, 9, .42, new THREE.Color(.75, .82, 1)));
+// Space Shuttle orbiter: NASA 3D Resources model (public), logos/flag removed from its textures.
+// The file is Z-up with the nose toward +X, 1 unit ~ 1 inch; remap to ship axes (nose -Z, up +Y) and ~18 units long.
+const gltf = new GLTFLoader().setDRACOLoader(new DRACOLoader().setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/gltf/')); // NASA files are Draco-compressed
+function buildShuttle() {
+  const g = newShip(), inner = new THREE.Group();
+  inner.matrixAutoUpdate = false;
+  inner.matrix.makeBasis(new V3(0, 0, -1), new V3(-1, 0, 0), new V3(0, 1, 0)).scale(new V3(.0125, .0125, .0125)).setPosition(0, -.4, .3);
+  g.add(inner);
+  gltf.load('assets/shuttle.glb', ({ scene: m }) => {
+    m.traverse(o => { if (o.material) { o.material.envMapIntensity = 1.3; o.material.side = THREE.DoubleSide; } });
+    inner.add(m);
+  });
+  // three main engines on the aft bulkhead (model coordinates), plus the two OMS engines
+  [[-640, 0, 70, 38], [-640, -48, -10, 38], [-640, 48, -10, 38], [-575, -112, 112, 18], [-575, 112, 112, 18]].forEach(([x, y, z, r]) => {
+    const f = sprite(new THREE.Color(.75, .82, 1), 1, 0, 1.6); f.position.set(x - r * 2, y, z); inner.add(f); g.userData.flames.push({ f, r });
+  });
   return g;
 }
 function buildCapsule() { // Orion-style: conical crew module on a service module with four X-wing solar arrays
