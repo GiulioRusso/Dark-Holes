@@ -1,6 +1,6 @@
 # Dark Holes
 
-An endless, procedurally generated universe to explore from the cockpit of your ship: a Dream Chaser-style lifting body, a shuttle orbiter, an Orion-style capsule with its service module, a Starship-style steel ship or a retro rocket. No goal, no game over: fly between star systems, orbit strange worlds, chase comets, dive past pulsars and fall into black holes.
+An endless, procedurally generated universe to explore from the cockpit of a small spaceplane. No goal, no game over: fly between star systems, orbit strange worlds, chase comets, dive past pulsars and fall into black holes.
 
 **Play in the browser:** https://giuliorusso.github.io/Dark-Holes/
 
@@ -36,7 +36,6 @@ Star systems (yellow, orange and red dwarfs, white and blue stars, red giants, b
 | View & system | |
 |---|---|
 | `C` | cockpit / outside camera |
-| `N` | change ship (also selectable on the start screen) |
 | `M` | radar range |
 | `P` · `V` · `H` | pause · sound · help |
 
@@ -66,12 +65,7 @@ An internet connection is needed: three.js is loaded from a CDN.
 ```
 index.html   page, HUD and styles
 game3d.js    the whole game: universe generation, shaders, flight, radar, audio
-assets/      3D models
 docs/        screenshots
 ```
-
-## Credits
-
-Space Shuttle orbiter model: [NASA 3D Resources](https://github.com/nasa/NASA-3D-Resources) ("Space Shuttle (D)"), with the NASA insignia, flag and lettering removed from its textures. This project is not affiliated with or endorsed by NASA. The other ships are procedural models built to the real vehicles' published proportions (Starship 52.1 × 9 m, Orion crew module 5.02 m with a 19 m solar-array span, Dream Chaser 9.1 m long with an 8.2 m span); they carry no logos or markings.
 
 The original 2D version lives on the [`classic-2d`](https://github.com/GiulioRusso/Dark-Holes/tree/classic-2d) branch.

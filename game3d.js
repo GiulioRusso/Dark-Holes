@@ -5,8 +5,6 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 
 const V3 = THREE.Vector3;
 // 1 world unit = 10 km. Sectors are cubes; a sector holds at most one star system / black hole / wormhole.
@@ -717,7 +715,6 @@ addEventListener('keydown', e => {
     case 'KeyX': ship.target = null; ship.auto = ship.autoOrbit = false; ship.orbit = null; break;
     case 'KeyG': { const t = ship.target || ship.cand; if (t) { ship.target = t; ship.auto = !ship.auto; } break; }
     case 'KeyP': paused = !paused; $('paused').classList.toggle('hidden', !paused); break;
-    case 'KeyN': setShip((shipIdx + 1) % SHIPS.length); chase = true; store.set('dh3d.chase', true); camQ.copy(ship.q); break;
     case 'KeyO': {
       // locked target first, then what's in your sights, then the nearest object; never a different one silently
       const current = ship.orbit || (ship.autoOrbit && ship.target);
@@ -744,10 +741,7 @@ addEventListener('mousemove', e => { if (document.pointerLockElement) { mdx += e
 document.addEventListener('pointerlockchange', () => document.getElementById('hint').classList.toggle('hidden', !!document.pointerLockElement || !started));
 const lockPointer = () => { try { const p = canvas.requestPointerLock(); p?.catch?.(() => { }); } catch { } };
 canvas.addEventListener('click', () => { if (started) lockPointer(); });
-document.getElementById('intro').addEventListener('click', e => {
-  const b = e.target.closest('[data-ship]');
-  if (b) setShip(+b.dataset.ship); else launch();
-});
+document.getElementById('intro').addEventListener('click', launch);
 
 const tO = new V3(), tF = new V3(), tR = new V3(), tU = new V3(), tA = new V3(), tD = new V3(), tE = new THREE.Euler(), tQ = new THREE.Quaternion(), tQ2 = new THREE.Quaternion();
 const isSolid = b => b.kind === 'planet' || b.kind === 'moon' || b.kind === 'star' || b.kind === 'pulsar' || b.kind === 'comet';
@@ -1055,170 +1049,40 @@ function panelTex(base, line, tilesX, tilesY, seed) { // procedural hull panelli
 }
 const newShip = () => { const g = new THREE.Group(); g.userData = { flames: [], throats: [], tips: [] }; return g; };
 
-function hexTex(seed, patched = 0) { // black hexagonal heat-shield tiles with slight variation (+ a few light replacement tiles)
-  const t = canvasTex(512, (c, S) => {
-    const r = rng(seed), w = 16, h = w * Math.sqrt(3) / 2;
-    c.fillStyle = '#0c0d0f'; c.fillRect(0, 0, S, S);
-    for (let y = -1, row = 0; y < S / h + 1; y++, row++) for (let x = -1; x < S / w + 1; x++) {
-      const cx = x * w + (row % 2) * w / 2, cy = y * h, g = r() < patched ? 150 + r() * 40 | 0 : 22 + r() * 14 | 0;
-      c.fillStyle = `rgb(${g},${g},${g + 2})`; c.beginPath();
-      for (let k = 0; k < 6; k++) { const a = Math.PI / 6 + k * Math.PI / 3; c.lineTo(cx + Math.cos(a) * w * .54, cy + Math.sin(a) * w * .54); }
-      c.fill();
-    }
+function buildSpaceplane() { // lifting-body spaceplane: ceramic upper skin, black tiles below, twin fins, two engines
+  const g = newShip();
+  const skin = new THREE.MeshStandardMaterial({ map: panelTex('#dcdad4', 'rgba(60,60,60,.35)', 16, 8, 3), metalness: .15, roughness: .55, envMapIntensity: 1.2, side: THREE.DoubleSide });
+  const tiles = new THREE.MeshStandardMaterial({ map: panelTex('#1d1e21', 'rgba(0,0,0,.6)', 32, 16, 4), metalness: .05, roughness: .85, side: THREE.DoubleSide });
+  const glass = new THREE.MeshStandardMaterial({ color: 0x08090b, metalness: .9, roughness: .06, envMapIntensity: 3 });
+  const prof = Array.from({ length: 48 }, (_, i) => { // tail (y=0) -> nose (y=17): straight mid-body, ogive nose
+    const y = i / 47 * 17, t = y / 17;
+    const body = .95 + .45 * sstep(0, .3, t), nose = t > .55 ? Math.sqrt(Math.max(0, 1 - ((t - .55) / .45) ** 2)) : 1;
+    return new THREE.Vector2(Math.max(.001, body * nose), y);
   });
-  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace;
-  return t;
+  part(g, new THREE.LatheGeometry(prof, 56), skin, [0, 0, 8.5], [X90, 0, 0], [1, 1, .62]);
+  part(g, new THREE.LatheGeometry(prof.map(v => new THREE.Vector2(v.x * 1.01, v.y)), 56, Math.PI / 2, Math.PI), tiles, [0, 0, 8.5], [X90, 0, 0], [1, 1, .62]);
+  // cockpit windows: a thin dark band, not a bubble
+  part(g, new THREE.SphereGeometry(1, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2), glass, [0, .5, -4.2], [-.12, 0, 0], [.75, .32, 1.3]);
+  // cranked delta wing with a thin profile
+  const wing = new THREE.ExtrudeGeometry(new THREE.Shape([new THREE.Vector2(0, -3.5), new THREE.Vector2(1.6, 0), new THREE.Vector2(5.8, 5.2), new THREE.Vector2(5.9, 6.6), new THREE.Vector2(0, 7)]),
+    { depth: .12, bevelEnabled: true, bevelThickness: .04, bevelSize: .06, bevelSegments: 2 });
+  const fin = new THREE.ExtrudeGeometry(new THREE.Shape([new THREE.Vector2(0, 0), new THREE.Vector2(3, 0), new THREE.Vector2(3.3, 2.4), new THREE.Vector2(2.3, 2.4)]), { depth: .1, bevelEnabled: true, bevelThickness: .03, bevelSize: .04, bevelSegments: 1 });
+  for (const s of [-1, 1]) {
+    part(g, wing, skin, [s * .85, -.28, 1.4], [Math.PI / 2, 0, s * .04], [s, 1, 1]);
+    const cant = new THREE.Group(); cant.position.set(s * 1.0, .35, 5.6); cant.rotation.z = -s * .26; g.add(cant);
+    part(cant, fin, skin, [0, 0, 0], [0, -Math.PI / 2, 0]);
+    const t = sprite(new THREE.Color(s < 0 ? 1 : .6, s < 0 ? .35 : 1, s < 0 ? .3 : .6), .8, .9, 2); t.position.set(s * 6.8, -.25, 8.1); g.add(t); g.userData.tips.push(t); // nav lights
+  }
+  part(g, new THREE.BoxGeometry(2.2, .14, 1.1), tiles, [0, -.45, 8.9]); // body flap
+  engine(g, -.5, 0, 8.6, .48, new THREE.Color(1, .78, .5));
+  engine(g, .5, 0, 8.6, .48, new THREE.Color(1, .78, .5));
+  return g;
 }
-const halfLathe = (prof, upper, segs = 48) => new THREE.LatheGeometry(prof, segs, upper ? -Math.PI / 2 : Math.PI / 2, Math.PI); // upper: ship +Y half
-const ceramic = seed => new THREE.MeshStandardMaterial({ map: panelTex('#e2e0da', 'rgba(70,70,70,.3)', 14, 8, seed), metalness: .1, roughness: .55, envMapIntensity: 1.1, side: THREE.DoubleSide });
-const tileMat = seed => new THREE.MeshStandardMaterial({ map: panelTex('#1b1c1f', 'rgba(0,0,0,.65)', 40, 20, seed), metalness: .05, roughness: .85, side: THREE.DoubleSide });
-const glassMat = () => new THREE.MeshStandardMaterial({ color: 0x07080a, metalness: .9, roughness: .06, envMapIntensity: 3 });
-const navLights = (g, x, y, z) => [-1, 1].forEach(s => { const t = sprite(new THREE.Color(s < 0 ? 1 : .6, s < 0 ? .35 : 1, s < 0 ? .3 : .6), .7, .9, 2); t.position.set(s * x, y, z); g.add(t); g.userData.tips.push(t); });
 
-// Dream Chaser-style lifting body, to scale (9.1 m long, 8.2 m span; 1 m = 1.9 units):
-// rounded white-tiled top, flat black belly, blunt black nose cap, steeply upturned wings, lower body flaps, two engines.
-function buildLiftingBody() {
-  const g = newShip();
-  const white = new THREE.MeshStandardMaterial({ map: panelTex('#ecebe6', 'rgba(90,90,90,.28)', 30, 18, 3), metalness: .05, roughness: .6, envMapIntensity: 1, side: THREE.DoubleSide });
-  const black = new THREE.MeshStandardMaterial({ map: panelTex('#141517', 'rgba(0,0,0,.6)', 40, 22, 4), metalness: .05, roughness: .85, side: THREE.DoubleSide });
-  const L = 17.3, W = 3.9;
-  const prof = Array.from({ length: 56 }, (_, i) => { const y = i / 55 * L, t = y / L; return new THREE.Vector2(Math.max(.001, W * (1 - .55 * t ** 1.3) * Math.sqrt(Math.max(0, 1 - t ** 5))), y); });
-  part(g, halfLathe(prof, true, 64), white, [0, 0, L / 2], [X90, 0, 0], [1, 1, .85]);   // top hump
-  part(g, halfLathe(prof, false, 64), black, [0, 0, L / 2], [X90, 0, 0], [1, 1, .3]);  // belly: nearly flat (~2.4 m total height)
-  part(g, new THREE.SphereGeometry(1, 24, 16), black, [0, .1, -L / 2 + .5], [0, 0, 0], [.8, .6, .75]); // nose cap
-  part(g, new THREE.CircleGeometry(W, 40, 0, Math.PI), black, [0, 0, L / 2], [0, 0, 0], [1, .85, 1]);       // aft bulkhead
-  part(g, new THREE.CircleGeometry(W, 40, Math.PI, Math.PI), black, [0, 0, L / 2], [0, 0, 0], [1, .3, 1]);
-  const wingShape = new THREE.Shape([new THREE.Vector2(0, 0), new THREE.Vector2(4.6, 3.8), new THREE.Vector2(4.7, 6.6), new THREE.Vector2(0, 6.6)]);
-  const wing = new THREE.ExtrudeGeometry(wingShape, { depth: .16, bevelEnabled: true, bevelThickness: .05, bevelSize: .07, bevelSegments: 2 });
-  const wingUnder = new THREE.ShapeGeometry(wingShape);
-  for (const s of [-1, 1]) {
-    const cant = new THREE.Group(); cant.position.set(s * 3.3, -.3, 1.9); cant.rotation.z = s * .85; g.add(cant); // ~50° up
-    part(cant, wing, white, [0, 0, 0], [Math.PI / 2, 0, 0], [s, 1, 1]);
-    part(cant, wingUnder, black, [0, -.24, 0], [Math.PI / 2, 0, 0], [s, 1, 1]); // outer (windward) face black
-    part(g, new THREE.BoxGeometry(1.7, .12, 1.3), black, [s * 1.4, -.75, L / 2 + .4], [.25, 0, 0]); // lower body flaps
-  }
-  navLights(g, 5.6, 3.4, 8.5);
-  engine(g, -.8, .7, L / 2, .36, new THREE.Color(1, .8, .55));
-  engine(g, .8, .7, L / 2, .36, new THREE.Color(1, .8, .55));
-  return g;
-}
-function buildShuttle() {
-  const g = newShip(), inner = new THREE.Group();
-  inner.matrixAutoUpdate = false;
-  inner.matrix.makeBasis(new V3(0, 0, -1), new V3(-1, 0, 0), new V3(0, 1, 0)).scale(new V3(.0125, .0125, .0125)).setPosition(0, -.4, .3);
-  g.add(inner);
-  gltf.load('assets/shuttle.glb', ({ scene: m }) => {
-    m.traverse(o => { if (o.material) { o.material.envMapIntensity = 1.3; o.material.side = THREE.DoubleSide; } });
-    inner.add(m);
-  });
-  // three main engines on the aft bulkhead (model coordinates), plus the two OMS engines
-  [[-640, 0, 70, 38], [-640, -48, -10, 38], [-640, 48, -10, 38], [-575, -112, 112, 18], [-575, 112, 112, 18]].forEach(([x, y, z, r]) => {
-    const f = sprite(new THREE.Color(.75, .82, 1), 1, 0, 1.6); f.position.set(x - r * 2, y, z); inner.add(f); g.userData.flames.push({ f, r });
-  });
-  return g;
-}
-// Orion-style, to scale (1 m = 1.2 units): 5.02 m silver crew module, Avcoat heat shield, adapter ring,
-// 4.1 m European Service Module in gold/silver MLI with white radiators, four 7 m three-panel solar wings (19 m span).
-function buildCapsule() {
-  const g = newShip(), k = 1.2;
-  const silver = new THREE.MeshStandardMaterial({ map: panelTex('#aeb2b7', 'rgba(25,25,28,.5)', 36, 5, 9), metalness: .7, roughness: .33, envMapIntensity: 1.8, side: THREE.DoubleSide });
-  const avcoat = new THREE.MeshStandardMaterial({ color: 0x4a3a2c, metalness: .05, roughness: .9, side: THREE.DoubleSide });
-  const white = new THREE.MeshStandardMaterial({ map: panelTex('#e6e5e0', 'rgba(80,80,80,.3)', 12, 2, 11), metalness: .1, roughness: .55, side: THREE.DoubleSide });
-  const mli = new THREE.MeshStandardMaterial({ map: panelTex('#b9a57c', 'rgba(70,55,30,.4)', 14, 5, 10), metalness: .65, roughness: .42, envMapIntensity: 1.6, side: THREE.DoubleSide });
-  const cells = canvasTex(256, (c, S) => { c.fillStyle = '#0e1a33'; c.fillRect(0, 0, S, S); c.strokeStyle = 'rgba(150,170,210,.35)'; c.lineWidth = 1; for (let i = 0; i <= 16; i++) { c.beginPath(); c.moveTo(i * S / 16, 0); c.lineTo(i * S / 16, S); c.moveTo(0, i * S / 16); c.lineTo(S, i * S / 16); c.stroke(); } });
-  const panel = new THREE.MeshStandardMaterial({ map: cells, metalness: .5, roughness: .28, envMapIntensity: 2, side: THREE.DoubleSide });
-  const frame = new THREE.MeshStandardMaterial({ color: 0x9aa0a6, metalness: .8, roughness: .35 });
-  let z = -4.2; // stack from the docking tunnel (front) to the engine (back)
-  part(g, new THREE.CylinderGeometry(.6 * k, .68 * k, .55 * k, 32, 1), silver, [0, 0, z + .27 * k], [X90, 0, 0]); z += .55 * k;   // docking tunnel
-  part(g, new THREE.CylinderGeometry(1.0 * k, 2.51 * k, 2.45 * k, 64, 1, true), silver, [0, 0, z + 1.22 * k], [X90, 0, 0]);       // crew module cone
-  for (let w = 0; w < 4; w++) { const a = Math.PI / 2 + (w - 1.5) * .42; part(g, new THREE.BoxGeometry(.32 * k, .28 * k, .04), glassMat(), [Math.cos(a) * 1.5 * k, Math.sin(a) * 1.5 * k, z + .9 * k], [-.55, 0, a - Math.PI / 2]); }
-  z += 2.45 * k;
-  part(g, new THREE.CylinderGeometry(2.51 * k, 2.51 * k, .22 * k, 64), avcoat, [0, 0, z + .11 * k], [X90, 0, 0]); z += .22 * k;     // heat shield
-  part(g, new THREE.CylinderGeometry(2.35 * k, 2.05 * k, .6 * k, 64, 1, true), white, [0, 0, z + .3 * k], [X90, 0, 0]); z += .6 * k; // crew module adapter
-  const esmL = 2.9 * k;
-  part(g, new THREE.CylinderGeometry(2.05 * k, 2.05 * k, esmL, 64, 1, true), mli, [0, 0, z + esmL / 2], [X90, 0, 0]);               // service module
-  for (let r = 0; r < 4; r++) part(g, new THREE.CylinderGeometry(2.07 * k, 2.07 * k, esmL * .7, 16, 1, true, r * Math.PI / 2 + .15, .9), white, [0, 0, z + esmL * .45], [X90, 0, 0]); // radiators
-  part(g, new THREE.CircleGeometry(2.05 * k, 64), mli, [0, 0, z + esmL]);
-  for (let w = 0; w < 4; w++) { // solar wings: 3 panels of ~2.2 m on a boom, X configuration at the aft end
-    const arm = new THREE.Group(); arm.rotation.z = Math.PI / 4 + w * Math.PI / 2; arm.position.z = z + esmL * .8; g.add(arm);
-    part(arm, new THREE.CylinderGeometry(.05 * k, .05 * k, .9 * k, 6), frame, [2.5 * k, 0, 0], [0, 0, Math.PI / 2]);
-    for (let i = 0; i < 3; i++) {
-      part(arm, new THREE.BoxGeometry(2.2 * k, .05, 2.0 * k), frame, [(3.1 + i * 2.3) * k, -.03, 0]);
-      part(arm, new THREE.BoxGeometry(2.12 * k, .05, 1.92 * k), panel, [(3.1 + i * 2.3) * k, 0, 0]);
-    }
-  }
-  z += esmL;
-  engine(g, 0, 0, z, .55 * k, new THREE.Color(.85, .88, 1));                                                                        // main engine
-  for (let a = 0; a < 8; a++) { const t = a / 8 * Math.PI * 2 + Math.PI / 8; engine(g, Math.cos(t) * 1.45 * k, Math.sin(t) * 1.45 * k, z, .12 * k, new THREE.Color(.85, .88, 1)); } // auxiliary thrusters
-  navLights(g, 10.5, 0, z - esmL * .2);
-  return g;
-}
-// Starship (Block 2 proportions): 52.1 m x 9 m (1 m = 0.36 units), tangent-ogive nose, hex tiles over the windward
-// ~200°, smaller forward flaps rotated ~20° leeward, aft flaps on the engine bay, 3 RSL + 3 RVac engines.
-function buildStarship() {
-  const g = newShip();
-  const steel = new THREE.MeshStandardMaterial({ map: panelTex('#d3d7dc', 'rgba(85,90,96,.42)', 4, 28, 5), metalness: .55, roughness: .3, envMapIntensity: 2.4, side: THREE.DoubleSide }); // brushed steel reads bright, not mirror-dark
-  const tex = (rx, ry, seed) => { const t = hexTex(seed, .012); t.repeat.set(rx, ry); return new THREE.MeshStandardMaterial({ map: t, metalness: .05, roughness: .85, side: THREE.DoubleSide }); };
-  const tilesBody = tex(5, 9, 6), tilesNose = tex(5, 5, 7), tilesFlap = tex(2, 2, 8);
-  const R = 1.62, Lb = 12.6, Ln = 6.2;
-  const lee = [-Math.PI / 2 + .3, Math.PI - .6], wind = [Math.PI / 2 - .3, Math.PI + .6]; // θ from ship +Y
-  part(g, new THREE.CylinderGeometry(R, R, Lb, 72, 1, true, ...lee), steel, [0, 0, 0], [X90, 0, 0]);
-  part(g, new THREE.CylinderGeometry(R, R, Lb, 72, 1, true, ...wind), tilesBody, [0, 0, 0], [X90, 0, 0]);
-  const rho = (R * R + Ln * Ln) / (2 * R);
-  const prof = Array.from({ length: 44 }, (_, i) => { const y = i / 43 * Ln; return new THREE.Vector2(Math.max(.001, Math.sqrt(Math.max(0, rho * rho - y * y)) + R - rho), y); }); // tangent ogive, y measured from the base
-  part(g, new THREE.LatheGeometry(prof, 72, ...lee), steel, [0, 0, -Lb / 2], [X90, 0, 0]);
-  part(g, new THREE.LatheGeometry(prof, 72, ...wind), tilesNose, [0, 0, -Lb / 2], [X90, 0, 0]);
-  // flap = steel plate (leeward face) + tile plate (windward face); shape x = span, y = chord toward the tail
-  const flap = (span, root, tip) => {
-    const sh = new THREE.Shape([new THREE.Vector2(0, 0), new THREE.Vector2(span, root - tip), new THREE.Vector2(span, root), new THREE.Vector2(0, root)]);
-    const f = new THREE.Group();
-    part(f, new THREE.ExtrudeGeometry(sh, { depth: .09, bevelEnabled: true, bevelThickness: .02, bevelSize: .03, bevelSegments: 1 }), steel, [0, 0, 0], [Math.PI / 2, 0, 0]);
-    part(f, new THREE.ShapeGeometry(sh), tilesFlap, [0, -.13, 0], [Math.PI / 2, 0, 0]);
-    return f;
-  };
-  for (const s of [-1, 1]) {
-    const fwd = flap(1.05, 2.3, 1.0); fwd.position.set(s * 1.2, 0, -Lb / 2 - 3.6); fwd.rotation.z = s * .35; fwd.scale.x = s; g.add(fwd);   // forward, 20° leeward
-    const aft = flap(1.5, 3.7, 2.0); aft.position.set(s * R * .98, -.05, Lb / 2 - 3.9); aft.rotation.z = -s * .04; aft.scale.x = s; g.add(aft); // aft
-  }
-  part(g, new THREE.CircleGeometry(R, 72), new THREE.MeshStandardMaterial({ color: 0x2a2b2e, metalness: .3, roughness: .7 }), [0, 0, Lb / 2 + .01]); // aft heat shield
-  for (let k = 0; k < 3; k++) { const a = Math.PI / 2 + k * Math.PI * 2 / 3; engine(g, Math.cos(a) * .42, Math.sin(a) * .42, Lb / 2, .23, new THREE.Color(.65, .78, 1)); }      // RSL (1.3 m)
-  for (let k = 0; k < 3; k++) { const a = -Math.PI / 2 + k * Math.PI * 2 / 3; engine(g, Math.cos(a) * 1.08, Math.sin(a) * 1.08, Lb / 2, .41, new THREE.Color(.65, .78, 1)); } // RVac (2.3 m)
-  return g;
-}
-function buildRocket() { // retro rocket: checkered hull, three swept fins on landing pads
-  const g = newShip();
-  const check = canvasTex(256, (c, S) => { for (let i = 0; i < 8; i++) for (let j = 0; j < 8; j++) { c.fillStyle = (i + j) % 2 ? '#e8e2d6' : '#b8302a'; c.fillRect(i * S / 8, j * S / 8, S / 8, S / 8); } });
-  check.wrapS = check.wrapT = THREE.RepeatWrapping; check.repeat.set(1, 1); check.colorSpace = THREE.SRGBColorSpace;
-  const hull = new THREE.MeshStandardMaterial({ map: check, metalness: .2, roughness: .45, envMapIntensity: 1.2 });
-  const red = new THREE.MeshStandardMaterial({ color: 0xb8302a, metalness: .25, roughness: .45, side: THREE.DoubleSide });
-  const prof = Array.from({ length: 44 }, (_, i) => { // tail -> nose: waisted base, fat body, long pointed nose
-    const y = i / 43 * 16, t = y / 16;
-    return new THREE.Vector2(Math.max(.001, 1.55 * Math.pow(Math.sin(Math.PI * Math.min(1, t * .95 + .08)), .8) * (1 - .25 * Math.exp(-t * 12))), y);
-  });
-  part(g, new THREE.LatheGeometry(prof, 48), hull, [0, 0, 8], [X90, 0, 0]);
-  const fin = new THREE.ExtrudeGeometry(new THREE.Shape([new THREE.Vector2(0, -3), new THREE.Vector2(2.6, 1.2), new THREE.Vector2(2.8, 3.4), new THREE.Vector2(1.9, 3.4), new THREE.Vector2(0, 1.8)]), { depth: .14, bevelEnabled: true, bevelThickness: .04, bevelSize: .05, bevelSegments: 1 });
-  for (let k = 0; k < 3; k++) {
-    const arm = new THREE.Group(); arm.rotation.z = Math.PI / 2 + k * Math.PI * 2 / 3; g.add(arm);
-    part(arm, fin, red, [1.1, -.07, 5.2], [Math.PI / 2, 0, 0]);
-    part(arm, new THREE.SphereGeometry(.28, 12, 8), red, [3.85, 0, 8.6]); // landing pad
-  }
-  const port = new THREE.MeshStandardMaterial({ color: 0x0b0c0e, metalness: .9, roughness: .1, envMapIntensity: 3 });
-  part(g, new THREE.CircleGeometry(.35, 20), port, [0, 1.45, -2.2], [-Math.PI / 2 + .25, 0, 0]);
-  engine(g, 0, 0, 8.05, .65, new THREE.Color(1, .6, .3));
-  return g;
-}
-const SHIPS = [['lifting body', buildLiftingBody], ['shuttle', buildShuttle], ['capsule', buildCapsule], ['starship', buildStarship], ['rocket', buildRocket]];
-let shipIdx = Math.min(SHIPS.length - 1, store.get('dh3d.ship2', 0) | 0), shipMesh = null;
-function setShip(i) {
-  if (shipMesh) { scene.remove(shipMesh); shipMesh.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material && !o.material.userData.shared) { o.material.map?.dispose(); o.material.dispose(); } }); }
-  shipIdx = i; store.set('dh3d.ship2', i);
-  shipMesh = SHIPS[i][1]();
-  const fill = new THREE.PointLight(0xfff0dc, .9, 0, 0); fill.position.set(-8, 10, 20); shipMesh.add(fill); // soft key light so the hull reads against black space
-  shipMesh.visible = false;
-  scene.add(shipMesh);
-  document.querySelectorAll('[data-ship]').forEach(b => b.classList.toggle('on', +b.dataset.ship === i));
-}
-setShip(shipIdx);
+const shipMesh = buildSpaceplane();
+const fill = new THREE.PointLight(0xfff0dc, .9, 0, 0); fill.position.set(-8, 10, 20); shipMesh.add(fill); // soft key light so the hull reads against black space
+shipMesh.visible = false;
+scene.add(shipMesh);
 const camQ = new THREE.Quaternion(), CHASE_OFF = new V3(0, 5.5, 34);
 const bankQ = new THREE.Quaternion(), bankE = new THREE.Euler();
 function updateCamera(dt) {

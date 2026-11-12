@@ -33,9 +33,6 @@
     #menu b { color: var(--c); font-weight: normal; margin-left: 6px; }
     #menu b:first-of-type { margin-left: 0; }
     #menu span + span { border-left: 1px solid var(--cf); padding-left: 26px; }
-    #shipPick { display: flex; gap: 10px; margin: 0 0 18px; font-size: 11.5px; align-items: center; }
-    #shipPick button { font: inherit; color: var(--cd); background: none; border: 1px solid var(--cf); padding: 5px 12px; cursor: pointer; }
-    #shipPick button.on { color: var(--c); border-color: var(--c); }
     .keys { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 28px; margin: 18px 0; }
     .keys h3 { margin: 0 0 4px; font: 11px Menlo, monospace; letter-spacing: .25em; color: var(--c); border-bottom: 1px solid var(--cf); padding-bottom: 3px; }
     .keys div div { display: grid; grid-template-columns: 9.5em 1fr; font-size: 11.5px; line-height: 1.6; }
@@ -81,7 +78,7 @@
   <div id="menu" class="hud">
     <span><em>FLY:</em> <b>W/S</b> thrust <b>Shift</b> warp <b>Space</b> brake <b>Shift+Space</b> escape</span>
     <span><em>NAV:</em> <b>T</b> lock <b>G</b> go <b>O</b> orbit <b>X</b> cancel <b>B</b> home</span>
-    <span><em>VIEW:</em> <b>C</b> camera <b>N</b> ship <b>M</b> radar</span>
+    <span><em>VIEW:</em> <b>C</b> camera <b>M</b> radar</span>
     <span><b>P</b> pause <b>H</b> help</span>
   </div>
   <div id="left" class="hud"><pre id="stats"></pre><div id="worlds"></div></div>
@@ -111,14 +108,12 @@
           <div><kbd>B</kbd><span>beacon: back to the home system</span></div></div>
         <div><h3>VIEW</h3>
           <div><kbd>C</kbd><span>cockpit / outside camera</span></div>
-          <div><kbd>N</kbd><span>change ship</span></div>
           <div><kbd>M</kbd><span>radar range</span></div></div>
         <div><h3>SYSTEM</h3>
           <div><kbd>P</kbd><span>pause</span></div>
           <div><kbd>V</kbd><span>sound on / off</span></div>
           <div><kbd>H</kbd><span>this help</span></div></div>
       </div>
-      <div id="shipPick"><span class="k">ship</span><button data-ship="0">lifting body</button><button data-ship="1">shuttle</button><button data-ship="2">capsule</button><button data-ship="3">starship</button><button data-ship="4">rocket</button></div>
       <div style="font-size:12px">&gt; click or press [enter] to launch<span class="cur">_</span></div>
     </div>
   </div>
